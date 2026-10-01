@@ -1,0 +1,25 @@
+{
+	"t": "state",
+	"state": {
+		"paused": false,
+		"suppressed": null,
+		"profile": {
+			"id": "solidworks",
+			"name": "SolidWorks"
+		},
+		"solidworks_mode": "auto",
+		"keyboard_visible": true,
+		"native_visible": false,
+		"obs_clients": 2,
+		"recording": {
+			"active": true,
+			"paused": false,
+			"timecode": "00:12:34.567"
+		},
+		"session": {
+			"active": true,
+			"started_ms": 1000,
+			"markers": 2
+		}
+	}
+}

@@ -1,0 +1,23 @@
+{
+	"t": "callout",
+	"callout": {
+		"id": 1,
+		"kind": "masked",
+		"steps": [
+			[
+				{
+					"key": "Enter",
+					"label": "Enter",
+					"kind": "key"
+				}
+			]
+		],
+		"text": null,
+		"count": 1,
+		"caption": null,
+		"context": null,
+		"profile": null,
+		"t_ms": 1020,
+		"updated_ms": 1100
+	}
+}

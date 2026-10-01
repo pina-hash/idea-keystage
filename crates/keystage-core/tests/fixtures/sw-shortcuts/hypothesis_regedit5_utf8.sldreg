@@ -1,0 +1,4 @@
+Windows Registry Editor Version 5.00
+
+[HKEY_CURRENT_USER\FIXTURE-PLACEHOLDER-NOT-A-SOLIDWORKS-PATH]
+"FixtureValue"=dword:00000400

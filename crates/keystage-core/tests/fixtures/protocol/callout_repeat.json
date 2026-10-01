@@ -1,0 +1,23 @@
+{
+	"t": "callout",
+	"callout": {
+		"id": 2,
+		"kind": "key",
+		"steps": [
+			[
+				{
+					"key": "F5",
+					"label": "F5",
+					"kind": "key"
+				}
+			]
+		],
+		"text": null,
+		"count": 3,
+		"caption": null,
+		"context": null,
+		"profile": null,
+		"t_ms": 3140,
+		"updated_ms": 3220
+	}
+}

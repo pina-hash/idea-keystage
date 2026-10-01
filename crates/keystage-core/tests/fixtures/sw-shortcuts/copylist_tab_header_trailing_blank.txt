@@ -1,0 +1,8 @@
+Category	Command	Shortcut(s)
+FixtureCategoryA	Fixture Command One	Ctrl+B
+FixtureCategoryA	Fixture Command Two	Ctrl + R
+FixtureCategoryA	Fixture Command Three	
+FixtureCategoryB	Fixture Command Four	Enter
+FixtureCategoryB	Fixture Command Five	S
+FixtureCategoryB	Fixture Command Six	Ctrl+Tab
+

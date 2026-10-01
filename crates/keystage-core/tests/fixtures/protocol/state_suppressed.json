@@ -1,0 +1,14 @@
+{
+	"t": "state",
+	"state": {
+		"paused": false,
+		"suppressed": "password",
+		"profile": null,
+		"solidworks_mode": "auto",
+		"keyboard_visible": true,
+		"native_visible": true,
+		"obs_clients": 0,
+		"recording": null,
+		"session": null
+	}
+}

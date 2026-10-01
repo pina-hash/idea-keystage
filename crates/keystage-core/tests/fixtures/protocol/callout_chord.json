@@ -1,0 +1,37 @@
+{
+	"t": "callout",
+	"callout": {
+		"id": 3,
+		"kind": "chord",
+		"steps": [
+			[
+				{
+					"key": "Alt",
+					"label": "Alt",
+					"kind": "modifier"
+				}
+			],
+			[
+				{
+					"key": "F",
+					"label": "F",
+					"kind": "key"
+				}
+			],
+			[
+				{
+					"key": "C",
+					"label": "C",
+					"kind": "key"
+				}
+			]
+		],
+		"text": null,
+		"count": 1,
+		"caption": "Close the active document",
+		"context": null,
+		"profile": "solidworks",
+		"t_ms": 5320,
+		"updated_ms": 5380
+	}
+}

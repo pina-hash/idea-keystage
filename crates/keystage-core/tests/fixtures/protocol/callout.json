@@ -1,0 +1,28 @@
+{
+	"t": "callout",
+	"callout": {
+		"id": 1,
+		"kind": "combo",
+		"steps": [
+			[
+				{
+					"key": "Ctrl",
+					"label": "Ctrl",
+					"kind": "modifier"
+				},
+				{
+					"key": "B",
+					"label": "B",
+					"kind": "key"
+				}
+			]
+		],
+		"text": null,
+		"count": 1,
+		"caption": "Rebuilds the model",
+		"context": null,
+		"profile": "solidworks",
+		"t_ms": 1040,
+		"updated_ms": 1040
+	}
+}

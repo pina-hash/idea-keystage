@@ -1,0 +1,130 @@
+{
+	"t": "hello",
+	"v": 1,
+	"app": "IDEA Keystage",
+	"version": "0.1.0",
+	"config": {
+		"theme": "idea",
+		"custom": null,
+		"scale": 1.0,
+		"font": "rajdhani",
+		"callouts": {
+			"enabled": true,
+			"anchor": "bottom",
+			"offset_x": 0.0,
+			"offset_y": 96.0,
+			"max_stack": 4,
+			"linger_ms": 2200,
+			"fade_ms": 450,
+			"size": "m",
+			"direction": "up",
+			"captions": true,
+			"symbols": true
+		},
+		"keyboard": {
+			"enabled": false,
+			"layout": "full",
+			"anchor": "bottom-left",
+			"offset_x": 32.0,
+			"offset_y": 32.0,
+			"decay_ms": 700,
+			"mouse": true,
+			"size": "m"
+		},
+		"mouse": {
+			"enabled": false,
+			"anchor": "bottom-right",
+			"offset_x": 32.0,
+			"offset_y": 32.0
+		},
+		"cursor": {
+			"enabled": false,
+			"style": "ring",
+			"size": 44.0,
+			"color": "#78b870",
+			"opacity": 0.85,
+			"ripples": true,
+			"trail": false,
+			"wheel": true
+		},
+		"indicators": {
+			"paused": true,
+			"suppressed": true
+		}
+	},
+	"state": {
+		"paused": false,
+		"suppressed": null,
+		"profile": {
+			"id": "solidworks",
+			"name": "SolidWorks"
+		},
+		"solidworks_mode": "auto",
+		"keyboard_visible": true,
+		"native_visible": false,
+		"obs_clients": 2,
+		"recording": {
+			"active": true,
+			"paused": false,
+			"timecode": "00:12:34.567"
+		},
+		"session": {
+			"active": true,
+			"started_ms": 1000,
+			"markers": 2
+		}
+	},
+	"legends": {
+		"layout": "00000409",
+		"legends": {
+			"sc:02": "1",
+			"sc:03": "2",
+			"sc:04": "3",
+			"sc:05": "4",
+			"sc:06": "5",
+			"sc:07": "6",
+			"sc:08": "7",
+			"sc:09": "8",
+			"sc:0A": "9",
+			"sc:0B": "0",
+			"sc:0C": "-",
+			"sc:0D": "=",
+			"sc:10": "Q",
+			"sc:11": "W",
+			"sc:12": "E",
+			"sc:13": "R",
+			"sc:14": "T",
+			"sc:15": "Y",
+			"sc:16": "U",
+			"sc:17": "I",
+			"sc:18": "O",
+			"sc:19": "P",
+			"sc:1A": "[",
+			"sc:1B": "]",
+			"sc:1E": "A",
+			"sc:1F": "S",
+			"sc:20": "D",
+			"sc:21": "F",
+			"sc:22": "G",
+			"sc:23": "H",
+			"sc:24": "J",
+			"sc:25": "K",
+			"sc:26": "L",
+			"sc:27": ";",
+			"sc:28": "'",
+			"sc:29": "`",
+			"sc:2B": "\\",
+			"sc:2C": "Z",
+			"sc:2D": "X",
+			"sc:2E": "C",
+			"sc:2F": "V",
+			"sc:30": "B",
+			"sc:31": "N",
+			"sc:32": "M",
+			"sc:33": ",",
+			"sc:34": ".",
+			"sc:35": "/",
+			"sc:56": "\\"
+		}
+	}
+}

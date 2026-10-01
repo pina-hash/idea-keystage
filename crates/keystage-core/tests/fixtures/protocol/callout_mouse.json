@@ -1,0 +1,28 @@
+{
+	"t": "callout",
+	"callout": {
+		"id": 4,
+		"kind": "mouse",
+		"steps": [
+			[
+				{
+					"key": "Ctrl",
+					"label": "Ctrl",
+					"kind": "modifier"
+				},
+				{
+					"key": "MiddleDrag",
+					"label": "Middle drag",
+					"kind": "mouse"
+				}
+			]
+		],
+		"text": null,
+		"count": 1,
+		"caption": "Pan",
+		"context": null,
+		"profile": "solidworks",
+		"t_ms": 7460,
+		"updated_ms": 7460
+	}
+}

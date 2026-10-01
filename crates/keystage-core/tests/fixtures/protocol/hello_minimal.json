@@ -1,0 +1,67 @@
+{
+	"t": "hello",
+	"v": 1,
+	"app": "IDEA Keystage",
+	"version": "0.1.0",
+	"config": {
+		"theme": "idea",
+		"custom": null,
+		"scale": 1.0,
+		"font": "rajdhani",
+		"callouts": {
+			"enabled": true,
+			"anchor": "bottom",
+			"offset_x": 0.0,
+			"offset_y": 96.0,
+			"max_stack": 4,
+			"linger_ms": 2200,
+			"fade_ms": 450,
+			"size": "m",
+			"direction": "up",
+			"captions": true,
+			"symbols": true
+		},
+		"keyboard": {
+			"enabled": false,
+			"layout": "full",
+			"anchor": "bottom-left",
+			"offset_x": 32.0,
+			"offset_y": 32.0,
+			"decay_ms": 700,
+			"mouse": true,
+			"size": "m"
+		},
+		"mouse": {
+			"enabled": false,
+			"anchor": "bottom-right",
+			"offset_x": 32.0,
+			"offset_y": 32.0
+		},
+		"cursor": {
+			"enabled": false,
+			"style": "ring",
+			"size": 44.0,
+			"color": "#78b870",
+			"opacity": 0.85,
+			"ripples": true,
+			"trail": false,
+			"wheel": true
+		},
+		"indicators": {
+			"paused": true,
+			"suppressed": true
+		}
+	},
+	"state": {
+		"paused": false,
+		"suppressed": null,
+		"profile": null,
+		"solidworks_mode": "auto",
+		"keyboard_visible": true,
+		"native_visible": true,
+		"obs_clients": 0,
+		"recording": null,
+		"session": null
+	},
+	"legends": null
+}

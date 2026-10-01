@@ -1,0 +1,23 @@
+{
+	"t": "callout",
+	"callout": {
+		"id": 2,
+		"kind": "text",
+		"steps": [
+			[
+				{
+					"key": "Enter",
+					"label": "Enter",
+					"kind": "key"
+				}
+			]
+		],
+		"text": "25.4",
+		"count": 1,
+		"caption": null,
+		"context": null,
+		"profile": "solidworks",
+		"t_ms": 3100,
+		"updated_ms": 3260
+	}
+}

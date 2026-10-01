@@ -1,0 +1,8 @@
+{
+	"t": "key",
+	"phys": "sc:1D",
+	"key": "Ctrl",
+	"down": true,
+	"modifier": "ctrl",
+	"t_ms": 1020
+}
