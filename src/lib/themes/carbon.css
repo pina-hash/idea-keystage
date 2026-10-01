@@ -1,0 +1,67 @@
+/* ==========================================================================
+   CARBON: maximum contrast for readability. Pure black plates with a 2px
+   white edge, white keys with black legends, and black modifier keys with a
+   white edge, so a modifier is told apart by its fill and its edge, not by
+   hue. Original values.
+   ========================================================================== */
+.ks-stage[data-theme='carbon'] {
+	--ks-edge-w: 2px;
+	--ks-plate-top: #000000;
+	--ks-plate-bot: #000000;
+	--ks-plate-edge: #ffffff;
+	--ks-plate-edge-top: #ffffff;
+	--ks-plate-hi: rgba(255, 255, 255, 0);
+	--ks-plate-shade: rgba(0, 0, 0, 0.6);
+	--ks-plate-shade-far: rgba(0, 0, 0, 0.35);
+	--ks-plate-glow: rgba(0, 0, 0, 0);
+	--ks-plate-blur: 0px;
+	--ks-tab: #ffffff;
+	--ks-cap-top: #ffffff;
+	--ks-cap-bot: #ffffff;
+	--ks-cap-ink: #000000;
+	--ks-cap-edge: #ffffff;
+	--ks-cap-hi: #ffffff;
+	--ks-cap-skirt: rgba(0, 0, 0, 0.3);
+	--ks-cap-shade: rgba(0, 0, 0, 0);
+	--ks-mod-top: #000000;
+	--ks-mod-bot: #000000;
+	--ks-mod-ink: #ffffff;
+	--ks-mod-edge: #ffffff;
+	--ks-mod-hi: rgba(255, 255, 255, 0);
+	--ks-mod-skirt: rgba(255, 255, 255, 0);
+	--ks-mod-lamp: #ffffff;
+	--ks-press-top: #ffffff;
+	--ks-press-bot: #ffffff;
+	--ks-press-ink: #000000;
+	--ks-press-edge: #ffffff;
+	--ks-press-glow: rgba(255, 255, 255, 0);
+	--ks-ctrl: #ffffff;
+	--ks-shift: #ffe14d;
+	--ks-alt: #5ce1ff;
+	--ks-win: #ff8ad8;
+	--ks-accent: #ffffff;
+	--ks-accent-ink: #000000;
+	--ks-glow: rgba(255, 255, 255, 0);
+	--ks-caption-ink: #ffffff;
+	--ks-context-ink: #e6e6e6;
+	--ks-joiner-ink: #ffffff;
+	--ks-inset-top: #000000;
+	--ks-inset-bot: #000000;
+	--ks-inset-ink: #ffffff;
+	--ks-inset-edge: #ffffff;
+	--ks-inset-shade: rgba(0, 0, 0, 0);
+	--ks-inset-lip: rgba(255, 255, 255, 0);
+	--ks-badge-ink: #ffffff;
+	--ks-screen-top: #000000;
+	--ks-screen-bot: #000000;
+	--ks-screen-ink: #ffffff;
+	--ks-screen-glow: rgba(255, 255, 255, 0);
+	--ks-screen-rim: #ffffff;
+	--ks-lamp-paused: #ffe14d;
+	--ks-lamp-hidden: #5ce1ff;
+	--ks-lamp-live: #ffffff;
+	--ks-lamp-ring: #000000;
+	--ks-mouse-body: #000000;
+	--ks-mouse-line: #ffffff;
+	--ks-mouse-hit: #ffffff;
+}

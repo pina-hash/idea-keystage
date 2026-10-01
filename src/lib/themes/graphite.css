@@ -1,0 +1,65 @@
+/* ==========================================================================
+   GRAPHITE: neutral dark. The IDEA plate's construction with every green
+   cast taken out, cool slate keys and a silver accent. Original values.
+   ========================================================================== */
+.ks-stage[data-theme='graphite'] {
+	--ks-edge-w: 1px;
+	--ks-plate-top: #2b2e33;
+	--ks-plate-bot: #212327;
+	--ks-plate-edge: #6b7079;
+	--ks-plate-edge-top: #878c95;
+	--ks-plate-hi: rgba(255, 255, 255, 0.1);
+	--ks-plate-shade: rgba(0, 0, 0, 0.5);
+	--ks-plate-shade-far: rgba(0, 0, 0, 0.4);
+	--ks-plate-glow: rgba(0, 0, 0, 0);
+	--ks-plate-blur: 0px;
+	--ks-tab: #c9ced6;
+	--ks-cap-top: #44484f;
+	--ks-cap-bot: #383b41;
+	--ks-cap-ink: #f3f4f6;
+	--ks-cap-edge: #6b7079;
+	--ks-cap-hi: rgba(255, 255, 255, 0.14);
+	--ks-cap-skirt: rgba(0, 0, 0, 0.45);
+	--ks-cap-shade: rgba(0, 0, 0, 0.5);
+	--ks-mod-top: #5d6470;
+	--ks-mod-bot: #4e545e;
+	--ks-mod-ink: #ffffff;
+	--ks-mod-edge: #a3aab4;
+	--ks-mod-hi: rgba(255, 255, 255, 0.22);
+	--ks-mod-skirt: rgba(0, 0, 0, 0.4);
+	--ks-mod-lamp: #e6e9ee;
+	--ks-press-top: #eceef1;
+	--ks-press-bot: #d3d7dc;
+	--ks-press-ink: #15171a;
+	--ks-press-edge: #ffffff;
+	--ks-press-glow: rgba(255, 255, 255, 0.28);
+	--ks-ctrl: #7fb4e6;
+	--ks-shift: #e0b45c;
+	--ks-alt: #9fd38f;
+	--ks-win: #c9a2e0;
+	--ks-accent: #d6dae0;
+	--ks-accent-ink: #1b1d20;
+	--ks-glow: rgba(214, 218, 224, 0.35);
+	--ks-caption-ink: #f3f4f6;
+	--ks-context-ink: #b4b9c1;
+	--ks-joiner-ink: #9ca2ab;
+	--ks-inset-top: #1a1c1f;
+	--ks-inset-bot: #1f2124;
+	--ks-inset-ink: #c3c8cf;
+	--ks-inset-edge: rgba(255, 255, 255, 0.12);
+	--ks-inset-shade: rgba(0, 0, 0, 0.6);
+	--ks-inset-lip: rgba(255, 255, 255, 0.09);
+	--ks-badge-ink: #ffffff;
+	--ks-screen-top: #1d2024;
+	--ks-screen-bot: #121417;
+	--ks-screen-ink: #e6e9ee;
+	--ks-screen-glow: rgba(255, 255, 255, 0.22);
+	--ks-screen-rim: rgba(255, 255, 255, 0.12);
+	--ks-lamp-paused: #e0a040;
+	--ks-lamp-hidden: #8fb8e0;
+	--ks-lamp-live: #9fd38f;
+	--ks-lamp-ring: #050506;
+	--ks-mouse-body: #383b41;
+	--ks-mouse-line: #c3c8cf;
+	--ks-mouse-hit: #e6e9ee;
+}

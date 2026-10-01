@@ -1,0 +1,18 @@
+/* ==========================================================================
+   Bundled fonts (@fontsource 5.3.0, SIL Open Font License 1.1). Vite copies
+   the woff2 and woff files into the build, so nothing loads from a CDN.
+   Only the Latin and Latin Extended subsets are bundled: overlay text is key
+   names, command captions and typed values.
+     Rajdhani 500, 600, 700   display and captions
+     Share Tech Mono 400      labels, typed text, readouts
+     Orbitron 500, 700        titles
+   ========================================================================== */
+@import '@fontsource/rajdhani/latin-500.css';
+@import '@fontsource/rajdhani/latin-600.css';
+@import '@fontsource/rajdhani/latin-700.css';
+@import '@fontsource/rajdhani/latin-ext-500.css';
+@import '@fontsource/rajdhani/latin-ext-600.css';
+@import '@fontsource/rajdhani/latin-ext-700.css';
+@import '@fontsource/share-tech-mono/latin-400.css';
+@import '@fontsource/orbitron/latin-500.css';
+@import '@fontsource/orbitron/latin-700.css';

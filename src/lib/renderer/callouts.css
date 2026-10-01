@@ -1,0 +1,694 @@
+/* ==========================================================================
+   The overlay's one construction. Every theme draws through these rules and
+   changes only colors (`--ks-*`, src/lib/themes/*.css), the plate rule ported
+   from IDEA Classroom (src/lib/styles/plate.css): raised means pressable
+   (keycaps, mouse chips), inset means status (the repeat badge, the Typing
+   tag, the Paused and Hidden pills, the typed-text readout).
+
+   Every length is a multiple of --ks-u (the keycap height, set from the
+   callout size and the scale in Stage.svelte), so the overlay is crisp at any
+   scale: nothing is scaled with a transform.
+
+   Browser floor: OBS 30 embeds Chromium 103. Nothing here needs more: no
+   :has(), no @container, no color-mix(), no nesting, no individual
+   transform properties. corner-shape is a progressive enhancement at the
+   foot of this file. Animations touch only opacity and transform.
+   ========================================================================== */
+
+.ks-stage {
+	--ks-u: 46px;
+	--ks-scale: 1;
+	--ks-fade-ms: 450ms;
+	--ks-font-key: 'Rajdhani', 'Segoe UI', sans-serif;
+	--ks-font-caption: 'Rajdhani', 'Segoe UI', sans-serif;
+	--ks-font-mono: 'Share Tech Mono', 'Consolas', monospace;
+	--ks-font-title: 'Orbitron', 'Rajdhani', sans-serif;
+	--ks-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	overflow: hidden;
+	pointer-events: none;
+	background: transparent;
+	font-family: var(--ks-font-caption);
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+	font-kerning: normal;
+	contain: layout style;
+}
+
+.ks-region {
+	position: absolute;
+	display: block;
+}
+
+.ks-sr {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* --------------------------------------------------------------------------
+   The stack
+   -------------------------------------------------------------------------- */
+.ks-stack {
+	display: flex;
+	flex-direction: column;
+	gap: calc(var(--ks-u) * 0.22);
+	max-width: calc(var(--ks-u) * 18);
+}
+
+.ks-slot {
+	display: flex;
+	max-width: 100%;
+}
+
+/* --------------------------------------------------------------------------
+   The callout plate: a raised panel (plate.css .plate-panel), with the
+   theme's soft glow around it and a chamfered accent tab on its top edge.
+   -------------------------------------------------------------------------- */
+.ks-callout {
+	--ks-enter-dy: calc(var(--ks-u) * 0.28);
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: calc(var(--ks-u) * 0.14);
+	box-sizing: border-box;
+	max-width: calc(var(--ks-u) * 18);
+	padding: calc(var(--ks-u) * 0.24) calc(var(--ks-u) * 0.32);
+	border: var(--ks-edge-w) solid;
+	border-color: var(--ks-plate-edge-top) var(--ks-plate-edge) var(--ks-plate-edge);
+	border-radius: calc(var(--ks-u) * 0.3);
+	background:
+		linear-gradient(to bottom, var(--ks-plate-top), var(--ks-plate-bot)) padding-box,
+		linear-gradient(to bottom, var(--ks-plate-edge-top), var(--ks-plate-edge)) border-box;
+	box-shadow:
+		inset 0 1px 0 0 var(--ks-plate-hi),
+		0 0 calc(var(--ks-u) * 0.4) calc(var(--ks-u) * 0.02) var(--ks-plate-glow),
+		0 1px 2px 0 var(--ks-plate-shade),
+		0 calc(var(--ks-u) * 0.2) calc(var(--ks-u) * 0.36) calc(var(--ks-u) * -0.14)
+			var(--ks-plate-shade),
+		calc(var(--ks-u) * -0.05) calc(var(--ks-u) * 0.46) calc(var(--ks-u) * 0.76)
+			calc(var(--ks-u) * -0.36) var(--ks-plate-shade-far);
+	opacity: 1;
+	transform: translateZ(0);
+	/* Coming back from a fade (an update) is quick; the fade itself is slow. */
+	transition: opacity 120ms linear;
+}
+.is-down .ks-callout {
+	--ks-enter-dy: calc(var(--ks-u) * -0.28);
+}
+
+/* The accent tab: a short bar hanging from the top edge with chamfered ends,
+   the machined detail of the plate's lit ring. clip-path draws the chamfer
+   in every engine. */
+.ks-callout::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: calc(var(--ks-u) * 0.3);
+	width: calc(var(--ks-u) * 0.9);
+	height: calc(var(--ks-u) * 0.075);
+	min-height: 2px;
+	background: var(--ks-tab);
+	clip-path: polygon(
+		0 0,
+		100% 0,
+		calc(100% - var(--ks-u) * 0.075) 100%,
+		calc(var(--ks-u) * 0.075) 100%
+	);
+	pointer-events: none;
+}
+/* Two small marks after the tab, the broken ring's dots. */
+.ks-callout::after {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: calc(var(--ks-u) * 1.28);
+	width: calc(var(--ks-u) * 0.26);
+	height: calc(var(--ks-u) * 0.075);
+	min-height: 2px;
+	background:
+		linear-gradient(var(--ks-tab), var(--ks-tab)) 0 0 / calc(var(--ks-u) * 0.075) 100% no-repeat,
+		linear-gradient(var(--ks-tab), var(--ks-tab)) calc(var(--ks-u) * 0.15) 0 /
+			calc(var(--ks-u) * 0.075) 100% no-repeat;
+	opacity: 0.8;
+	pointer-events: none;
+}
+
+.ks-callout.is-fading {
+	opacity: 0;
+	transition: opacity var(--ks-fade-ms) linear;
+}
+.ks-callout.is-leaving {
+	opacity: 0;
+	transition: opacity 160ms linear;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.ks-callout {
+		animation: ks-enter 200ms var(--ks-ease) backwards;
+	}
+	.ks-callout.is-leaving {
+		transform: translateZ(0) scale(0.97);
+		transition:
+			opacity 160ms linear,
+			transform 160ms var(--ks-ease);
+	}
+}
+
+@keyframes ks-enter {
+	from {
+		opacity: 0;
+		transform: translate3d(0, var(--ks-enter-dy), 0) scale(0.96);
+	}
+	to {
+		opacity: 1;
+		transform: translateZ(0);
+	}
+}
+
+/* --------------------------------------------------------------------------
+   The key row
+   -------------------------------------------------------------------------- */
+.ks-keys {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: calc(var(--ks-u) * 0.12);
+	max-width: 100%;
+	min-width: 0;
+}
+.ks-steps {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: calc(var(--ks-u) * 0.12);
+	min-width: 0;
+}
+
+.ks-join {
+	display: inline-block;
+	min-width: calc(var(--ks-u) * 0.22);
+	text-align: center;
+	color: var(--ks-joiner-ink);
+	font-family: var(--ks-font-caption);
+	font-weight: 600;
+	font-size: calc(var(--ks-u) * 0.46);
+	line-height: 1;
+	transform: translateY(calc(var(--ks-u) * -0.04));
+}
+.ks-join.is-comma {
+	min-width: calc(var(--ks-u) * 0.14);
+	transform: translateY(calc(var(--ks-u) * 0.06));
+	font-weight: 700;
+}
+
+/* --------------------------------------------------------------------------
+   Keycaps: raised keys. A face lighter at the top, the composite edge, a
+   crisp top highlight, and the key's front wall (the skirt) as a darker band
+   at its foot with a light line above it. A modifier gets its own face, a
+   lamp and a mono legend: shape and type as well as color.
+   -------------------------------------------------------------------------- */
+.ks-cap {
+	--ks-skirt: calc(var(--ks-u) * 0.1);
+	position: relative;
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: calc(var(--ks-u) * 0.14);
+	height: var(--ks-u);
+	min-width: var(--ks-u);
+	padding: 0 calc(var(--ks-u) * 0.3) var(--ks-skirt);
+	border: var(--ks-edge-w) solid var(--ks-cap-edge);
+	border-radius: calc(var(--ks-u) * 0.17);
+	background: linear-gradient(to bottom, var(--ks-cap-top), var(--ks-cap-bot));
+	box-shadow:
+		inset 0 1px 0 0 var(--ks-cap-hi),
+		inset 0 calc(var(--ks-skirt) * -1) 0 0 var(--ks-cap-skirt),
+		inset 0 calc(var(--ks-skirt) * -1 - 1px) 0 0 var(--ks-cap-hi),
+		0 calc(var(--ks-u) * 0.04) calc(var(--ks-u) * 0.08) 0 var(--ks-cap-shade);
+	color: var(--ks-cap-ink);
+	font-family: var(--ks-font-key);
+	font-weight: 700;
+	font-size: calc(var(--ks-u) * 0.42);
+	line-height: 1;
+	letter-spacing: 0.01em;
+	white-space: nowrap;
+}
+.ks-cap.is-short {
+	font-size: calc(var(--ks-u) * 0.52);
+	padding-left: calc(var(--ks-u) * 0.2);
+	padding-right: calc(var(--ks-u) * 0.2);
+}
+.ks-cap.is-wide {
+	min-width: calc(var(--ks-u) * 2.6);
+}
+.ks-cap-label {
+	display: block;
+	transform: translateY(calc(var(--ks-u) * 0.02));
+}
+
+.ks-cap.is-mod {
+	min-width: calc(var(--ks-u) * 1.5);
+	padding-left: calc(var(--ks-u) * 0.42);
+	padding-right: calc(var(--ks-u) * 0.3);
+	border-color: var(--ks-mod-edge);
+	background: linear-gradient(to bottom, var(--ks-mod-top), var(--ks-mod-bot));
+	box-shadow:
+		inset 0 1px 0 0 var(--ks-mod-hi),
+		inset 0 calc(var(--ks-skirt) * -1) 0 0 var(--ks-mod-skirt),
+		inset 0 calc(var(--ks-skirt) * -1 - 1px) 0 0 var(--ks-mod-hi),
+		0 0 calc(var(--ks-u) * 0.22) 0 var(--ks-plate-glow),
+		0 calc(var(--ks-u) * 0.04) calc(var(--ks-u) * 0.08) 0 var(--ks-cap-shade);
+	color: var(--ks-mod-ink);
+	font-family: var(--ks-font-mono);
+	font-weight: 400;
+	font-size: calc(var(--ks-u) * 0.36);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+.ks-cap-lamp {
+	position: absolute;
+	left: calc(var(--ks-u) * 0.15);
+	top: calc(var(--ks-u) * 0.15);
+	width: calc(var(--ks-u) * 0.12);
+	height: calc(var(--ks-u) * 0.12);
+	border-radius: 50%;
+	background: var(--ks-mod-lamp);
+	box-shadow:
+		0 0 0 1px var(--ks-lamp-ring),
+		0 0 calc(var(--ks-u) * 0.14) calc(var(--ks-u) * 0.02) var(--ks-mod-lamp);
+}
+
+.ks-cap.is-glyph {
+	min-width: calc(var(--ks-u) * 1.15);
+}
+.ks-cap-prefix {
+	font-family: var(--ks-font-mono);
+	font-weight: 400;
+	font-size: calc(var(--ks-u) * 0.3);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	opacity: 0.85;
+}
+.ks-cap-glyph {
+	display: block;
+	width: calc(var(--ks-u) * 0.5);
+	height: calc(var(--ks-u) * 0.5);
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2.4;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	overflow: visible;
+}
+
+.ks-cap.is-mouse {
+	padding-left: calc(var(--ks-u) * 0.2);
+	font-weight: 600;
+	font-size: calc(var(--ks-u) * 0.42);
+}
+
+/* The small mouse glyph on a mouse chip. */
+.ks-mouse {
+	display: block;
+	flex: none;
+	width: calc(var(--ks-u) * 0.48);
+	height: calc(var(--ks-u) * 0.64);
+	overflow: visible;
+}
+.ks-mouse-body {
+	fill: var(--ks-mouse-body);
+	stroke: var(--ks-mouse-line);
+	stroke-width: 1.6;
+}
+.ks-mouse-line {
+	fill: none;
+	stroke: var(--ks-mouse-line);
+	stroke-width: 1.4;
+	stroke-linecap: round;
+}
+.ks-mouse-hit {
+	fill: var(--ks-mouse-hit);
+	stroke: var(--ks-mouse-line);
+	stroke-width: 1.2;
+}
+.ks-mouse-wheel {
+	fill: var(--ks-mouse-body);
+	stroke: var(--ks-mouse-line);
+	stroke-width: 1.3;
+}
+.ks-mouse-wheel.is-hit {
+	fill: var(--ks-mouse-hit);
+}
+.ks-mouse-chev {
+	fill: none;
+	stroke: var(--ks-mouse-hit);
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+/* A key press on arrival: the cap sinks onto its skirt and comes back up. */
+@media (prefers-reduced-motion: no-preference) {
+	.ks-cap {
+		animation: ks-press 220ms var(--ks-ease) backwards;
+	}
+}
+@keyframes ks-press {
+	0% {
+		transform: translateY(calc(var(--ks-u) * 0.06));
+	}
+	100% {
+		transform: translateY(0);
+	}
+}
+
+/* --------------------------------------------------------------------------
+   Inset status tags: the repeat badge and the masked Typing tag (plate.css
+   .plate-chip). Set into the plate: a top shadow, a light lip, no drop.
+   -------------------------------------------------------------------------- */
+.ks-badge,
+.ks-typing {
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	border-radius: calc(var(--ks-u) * 0.14);
+	background: linear-gradient(to bottom, var(--ks-inset-top), var(--ks-inset-bot));
+	box-shadow:
+		inset 0 0 0 1px var(--ks-inset-edge),
+		inset 0 calc(var(--ks-u) * 0.06) calc(var(--ks-u) * 0.06) calc(var(--ks-u) * -0.03)
+			var(--ks-inset-shade),
+		inset 0 -1px 0 0 var(--ks-inset-lip),
+		0 1px 0 0 var(--ks-inset-lip);
+	white-space: nowrap;
+}
+
+.ks-badge {
+	height: calc(var(--ks-u) * 0.74);
+	margin-left: calc(var(--ks-u) * 0.06);
+	padding: 0 calc(var(--ks-u) * 0.2);
+	color: var(--ks-badge-ink);
+	font-family: var(--ks-font-mono);
+	font-size: calc(var(--ks-u) * 0.42);
+	line-height: 1;
+	letter-spacing: 0.02em;
+	font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: no-preference) {
+	.ks-badge {
+		animation: ks-pop 200ms var(--ks-ease) backwards;
+	}
+}
+@keyframes ks-pop {
+	0% {
+		transform: scale(1.22);
+	}
+	100% {
+		transform: scale(1);
+	}
+}
+
+.ks-typing {
+	height: var(--ks-u);
+	gap: calc(var(--ks-u) * 0.16);
+	padding: 0 calc(var(--ks-u) * 0.3) 0 calc(var(--ks-u) * 0.24);
+	color: var(--ks-inset-ink);
+}
+.ks-typing-glyph {
+	display: block;
+	width: calc(var(--ks-u) * 0.52);
+	height: calc(var(--ks-u) * 0.52);
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 1.6;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.ks-typing-word {
+	font-family: var(--ks-font-mono);
+	font-size: calc(var(--ks-u) * 0.36);
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+	line-height: 1;
+}
+.ks-typing-dots {
+	display: inline-flex;
+	gap: calc(var(--ks-u) * 0.07);
+}
+.ks-typing-dots i {
+	display: block;
+	width: calc(var(--ks-u) * 0.08);
+	height: calc(var(--ks-u) * 0.08);
+	border-radius: 50%;
+	background: currentColor;
+	opacity: 0.7;
+}
+@media (prefers-reduced-motion: no-preference) {
+	.ks-typing-dots i {
+		animation: ks-dot 1200ms ease-in-out infinite;
+	}
+	.ks-typing-dots i:nth-child(2) {
+		animation-delay: 160ms;
+	}
+	.ks-typing-dots i:nth-child(3) {
+		animation-delay: 320ms;
+	}
+}
+@keyframes ks-dot {
+	0%,
+	60%,
+	100% {
+		opacity: 0.35;
+	}
+	30% {
+		opacity: 1;
+	}
+}
+
+/* --------------------------------------------------------------------------
+   The typed-text readout (plate.css .plate-screen): tinted glass, lighter at
+   the top, its upper corners rounded and its lower corners chamfered, the
+   text glowing. The rim is the outer layer showing 1px around the face, so it
+   follows the chamfer.
+   -------------------------------------------------------------------------- */
+.ks-screen {
+	--ks-cut: calc(var(--ks-u) * 0.2);
+	display: inline-flex;
+	box-sizing: border-box;
+	height: var(--ks-u);
+	max-width: calc(var(--ks-u) * 13);
+	padding: 1px;
+	border-radius: calc(var(--ks-u) * 0.16) calc(var(--ks-u) * 0.16) 0 0;
+	background: var(--ks-screen-rim);
+	clip-path: polygon(
+		0 0,
+		100% 0,
+		100% calc(100% - var(--ks-cut)),
+		calc(100% - var(--ks-cut)) 100%,
+		var(--ks-cut) 100%,
+		0 calc(100% - var(--ks-cut))
+	);
+}
+.ks-screen-face {
+	--ks-cut-in: calc(var(--ks-cut) - 0.42px);
+	display: inline-flex;
+	align-items: center;
+	box-sizing: border-box;
+	min-width: calc(var(--ks-u) * 1.2);
+	max-width: 100%;
+	padding: 0 calc(var(--ks-u) * 0.3);
+	border-radius: calc(var(--ks-u) * 0.16 - 1px) calc(var(--ks-u) * 0.16 - 1px) 0 0;
+	background: linear-gradient(to bottom, var(--ks-screen-top), var(--ks-screen-bot));
+	box-shadow: inset 0 calc(var(--ks-u) * 0.12) calc(var(--ks-u) * 0.2) calc(var(--ks-u) * -0.12)
+		rgba(0, 0, 0, 0.6);
+	clip-path: polygon(
+		0 0,
+		100% 0,
+		100% calc(100% - var(--ks-cut-in)),
+		calc(100% - var(--ks-cut-in)) 100%,
+		var(--ks-cut-in) 100%,
+		0 calc(100% - var(--ks-cut-in))
+	);
+	overflow: hidden;
+}
+.ks-screen-text {
+	display: block;
+	overflow: hidden;
+	color: var(--ks-screen-ink);
+	font-family: var(--ks-font-mono);
+	font-size: calc(var(--ks-u) * 0.5);
+	line-height: 1;
+	letter-spacing: 0.04em;
+	white-space: pre;
+	text-shadow: 0 0 calc(var(--ks-u) * 0.2) var(--ks-screen-glow);
+}
+
+/* --------------------------------------------------------------------------
+   The caption line: the command name, and a small mono context label after
+   an etched divider.
+   -------------------------------------------------------------------------- */
+.ks-caption {
+	display: flex;
+	align-items: baseline;
+	gap: calc(var(--ks-u) * 0.22);
+	max-width: 100%;
+	min-width: 0;
+	padding: 0 calc(var(--ks-u) * 0.04);
+}
+.ks-caption-text {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--ks-caption-ink);
+	font-family: var(--ks-font-caption);
+	font-weight: 600;
+	font-size: calc(var(--ks-u) * 0.46);
+	line-height: 1.17;
+	letter-spacing: 0.01em;
+}
+.ks-caption-context {
+	position: relative;
+	flex: 0 3 auto;
+	min-width: calc(var(--ks-u) * 1.2);
+	padding-left: calc(var(--ks-u) * 0.22);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--ks-context-ink);
+	font-family: var(--ks-font-mono);
+	font-size: calc(var(--ks-u) * 0.28);
+	line-height: 1.2;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
+}
+.ks-caption-context::before {
+	content: '';
+	position: absolute;
+	left: 0;
+	top: 50%;
+	width: 1px;
+	height: 1em;
+	margin-top: -0.55em;
+	background: var(--ks-joiner-ink);
+	opacity: 0.7;
+}
+
+/* --------------------------------------------------------------------------
+   Status pills (Paused, Hidden): inset status plates with a lamp, a glyph
+   and the word. The hairline is the load-bearing edge; the soft glow keeps
+   the pill readable over dark video.
+   -------------------------------------------------------------------------- */
+.ks-indicator {
+	--ks-enter-dy: calc(var(--ks-u) * 0.2);
+	box-sizing: border-box;
+	display: inline-flex;
+	align-items: center;
+	gap: calc(var(--ks-u) * 0.16);
+	height: calc(var(--ks-u) * 0.8);
+	padding: 0 calc(var(--ks-u) * 0.3) 0 calc(var(--ks-u) * 0.24);
+	border: var(--ks-edge-w) solid var(--ks-plate-edge);
+	border-radius: calc(var(--ks-u) * 0.4);
+	background:
+		linear-gradient(to bottom, var(--ks-inset-top), var(--ks-inset-bot)), var(--ks-plate-bot);
+	box-shadow:
+		inset 0 calc(var(--ks-u) * 0.06) calc(var(--ks-u) * 0.08) calc(var(--ks-u) * -0.03)
+			var(--ks-inset-shade),
+		inset 0 -1px 0 0 var(--ks-inset-lip),
+		0 0 calc(var(--ks-u) * 0.3) 0 var(--ks-plate-glow),
+		0 1px 0 0 var(--ks-inset-lip);
+	color: var(--ks-inset-ink);
+	white-space: nowrap;
+}
+.ks-indicator.is-paused {
+	--ks-lamp: var(--ks-lamp-paused);
+}
+.ks-indicator.is-hidden {
+	--ks-lamp: var(--ks-lamp-hidden);
+}
+.ks-indicator-lamp {
+	flex: none;
+	width: calc(var(--ks-u) * 0.16);
+	height: calc(var(--ks-u) * 0.16);
+	border-radius: 50%;
+	background: var(--ks-lamp);
+	box-shadow:
+		0 0 0 1px var(--ks-lamp-ring),
+		0 0 calc(var(--ks-u) * 0.16) calc(var(--ks-u) * 0.02) var(--ks-lamp);
+}
+.ks-indicator-glyph {
+	display: block;
+	width: calc(var(--ks-u) * 0.4);
+	height: calc(var(--ks-u) * 0.4);
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2.2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.ks-indicator-word {
+	font-family: var(--ks-font-mono);
+	font-size: calc(var(--ks-u) * 0.34);
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	line-height: 1;
+}
+.ks-indicator-detail {
+	position: relative;
+	padding-left: calc(var(--ks-u) * 0.18);
+	font-family: var(--ks-font-caption);
+	font-weight: 600;
+	font-size: calc(var(--ks-u) * 0.36);
+	line-height: 1;
+}
+.ks-indicator-detail::before {
+	content: '';
+	position: absolute;
+	left: 0;
+	top: 50%;
+	width: 1px;
+	height: 1em;
+	margin-top: -0.5em;
+	background: currentColor;
+	opacity: 0.5;
+}
+@media (prefers-reduced-motion: no-preference) {
+	.ks-indicator {
+		animation: ks-enter 200ms var(--ks-ease) backwards;
+	}
+}
+
+/* --------------------------------------------------------------------------
+   Progressive enhancement: the approved soft chamfer (superellipse(0.25),
+   IDEA Classroom's --plate-soft) on engines that have corner-shape. Older
+   engines (OBS's Chromium 103 and 127) keep the rounded corner, which is
+   finished on its own.
+   -------------------------------------------------------------------------- */
+@supports (corner-shape: superellipse(0.25)) {
+	.ks-callout,
+	.ks-cap,
+	.ks-badge,
+	.ks-typing,
+	.ks-indicator {
+		corner-shape: superellipse(0.25);
+	}
+	.ks-callout {
+		border-radius: calc(var(--ks-u) * 0.36);
+	}
+	.ks-cap {
+		border-radius: calc(var(--ks-u) * 0.22);
+	}
+}

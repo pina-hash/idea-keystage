@@ -1,0 +1,79 @@
+/* ==========================================================================
+   IDEA: the house theme. IDEA green on dark machined charcoal with a soft
+   green glow. Every color is a ported IDEA Classroom plate token (idea-app
+   src/lib/classroom/plate.css, the IDEA color block, and
+   src/lib/design-system/colors.css); the token it came from is named beside
+   it. Colors only: geometry lives once in src/lib/renderer/callouts.css.
+   ========================================================================== */
+.ks-stage[data-theme='idea'] {
+	--ks-edge-w: 1px;
+	/* The callout plate: a raised panel (plate-panel-*). */
+	--ks-plate-top: #1c1f1d; /* --plate-panel-top */
+	--ks-plate-bot: #171a18; /* --plate-panel-bot */
+	--ks-plate-edge: #656f68; /* --plate-hair */
+	--ks-plate-edge-top: #7a857d; /* --plate-hair-top */
+	--ks-plate-hi: rgba(255, 255, 255, 0.12); /* --plate-panel-hi */
+	--ks-plate-shade: rgba(0, 0, 0, 0.55); /* --plate-drop */
+	--ks-plate-shade-far: rgba(0, 0, 0, 0.45); /* --plate-drop-far */
+	--ks-plate-glow: rgba(120, 184, 112, 0.3); /* --plate-bloom */
+	--ks-plate-blur: 0px;
+	--ks-tab: #78b870; /* --green */
+	/* Keycaps: raised keys (plate-face-*, the composite edge). */
+	--ks-cap-top: #2f3431; /* --plate-face-top */
+	--ks-cap-bot: #252a27; /* --plate-face-bot */
+	--ks-cap-ink: #e7eae8; /* --text-1 */
+	--ks-cap-edge: #656f68; /* --plate-hair */
+	--ks-cap-hi: rgba(255, 255, 255, 0.16); /* --plate-bezel-hi */
+	--ks-cap-skirt: rgba(0, 0, 0, 0.5); /* --plate-foot */
+	--ks-cap-shade: rgba(0, 0, 0, 0.55); /* --plate-drop */
+	/* Modifiers: the deep accent face with a lit green edge (plate-primary-*). */
+	--ks-mod-top: #33522f;
+	--ks-mod-bot: #2f4b2c; /* --plate-primary-face */
+	--ks-mod-ink: #e7eae8; /* --plate-primary-ink */
+	--ks-mod-edge: rgba(143, 224, 138, 0.75); /* --plate-sel-edge */
+	--ks-mod-hi: rgba(143, 224, 138, 0.35); /* --plate-primary-hi */
+	--ks-mod-skirt: rgba(0, 0, 0, 0.35); /* --plate-primary-foot */
+	--ks-mod-lamp: #8fe08a;
+	/* Pressed key on the keyboard visual: the lit accent face. */
+	--ks-press-top: #8fd086;
+	--ks-press-bot: #78b870; /* --green */
+	--ks-press-ink: #0a0c0b;
+	--ks-press-edge: #b7e8b1; /* --plate-ring-glow */
+	--ks-press-glow: rgba(143, 224, 138, 0.55); /* --plate-accent-glow */
+	/* One hue per modifier on the keyboard visual (IDEA semantic hues). */
+	--ks-ctrl: #78b870; /* --green */
+	--ks-shift: #5abda8; /* --cyan */
+	--ks-alt: #c8a848; /* --gold */
+	--ks-win: #a08ac7; /* --violet-ink */
+	/* Accent. */
+	--ks-accent: #78b870; /* --green */
+	--ks-accent-ink: #121a12; /* --bg0 */
+	--ks-glow: rgba(143, 224, 138, 0.55); /* --plate-accent-glow */
+	/* Words on the plate. */
+	--ks-caption-ink: #e7eae8; /* --text-1 */
+	--ks-context-ink: #b9c0bb; /* --plate-caption */
+	--ks-joiner-ink: #9aa49d; /* --text-2 */
+	/* Inset status tags (plate-chip-*): the repeat badge, Typing, indicators. */
+	--ks-inset-top: #121413; /* --plate-chip-top */
+	--ks-inset-bot: #171a18; /* --plate-chip-bot */
+	--ks-inset-ink: #b9c0bb; /* --plate-caption */
+	--ks-inset-edge: rgba(255, 255, 255, 0.13); /* --plate-chip-edge */
+	--ks-inset-shade: rgba(0, 0, 0, 0.6); /* --plate-chip-shade */
+	--ks-inset-lip: rgba(255, 255, 255, 0.1); /* --plate-chip-lip */
+	--ks-badge-ink: #8fe08a;
+	/* The readout for typed text (plate-screen-*). */
+	--ks-screen-top: #16201a; /* --plate-screen-top */
+	--ks-screen-bot: #0b100d; /* --plate-screen-bot */
+	--ks-screen-ink: #81bd79; /* --plate-screen-ink */
+	--ks-screen-glow: rgba(120, 184, 112, 0.65); /* --plate-screen-glow */
+	--ks-screen-rim: rgba(143, 224, 138, 0.16); /* --plate-screen-rim */
+	/* Lamps. */
+	--ks-lamp-paused: #d08030; /* --amber */
+	--ks-lamp-hidden: #c8a848; /* --gold */
+	--ks-lamp-live: #78b870; /* --green */
+	--ks-lamp-ring: #050706; /* --plate-led-ring */
+	/* The small mouse glyph on mouse chips. */
+	--ks-mouse-body: #252a27;
+	--ks-mouse-line: #b9c0bb;
+	--ks-mouse-hit: #78b870;
+}

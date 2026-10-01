@@ -1,0 +1,9 @@
+/* Every overlay theme. Imported once by src/lib/renderer/Stage.svelte. The
+   custom theme has no file: its tokens are computed from config.custom in
+   themes.ts and set inline on the stage. */
+@import './idea.css';
+@import './studio.css';
+@import './graphite.css';
+@import './blueprint.css';
+@import './carbon.css';
+@import './glass.css';

@@ -1,0 +1,76 @@
+/* ==========================================================================
+   GLASS: a translucent frosted panel with strong white type. The panel is
+   dark enough that the type clears 4.5:1 over a white screen; the blur only
+   shows where the page has something behind it (the settings preview), since
+   an OBS source and the native overlay are transparent pages. Original
+   values.
+   ========================================================================== */
+.ks-stage[data-theme='glass'] {
+	--ks-edge-w: 1px;
+	--ks-plate-top: rgba(22, 27, 33, 0.76);
+	--ks-plate-bot: rgba(12, 15, 19, 0.78);
+	--ks-plate-edge: rgba(255, 255, 255, 0.36);
+	--ks-plate-edge-top: rgba(255, 255, 255, 0.6);
+	--ks-plate-hi: rgba(255, 255, 255, 0.24);
+	--ks-plate-shade: rgba(0, 0, 0, 0.32);
+	--ks-plate-shade-far: rgba(0, 0, 0, 0.22);
+	--ks-plate-glow: rgba(255, 255, 255, 0.08);
+	--ks-plate-blur: 16px;
+	--ks-tab: rgba(255, 255, 255, 0.9);
+	--ks-cap-top: rgba(255, 255, 255, 0.17);
+	--ks-cap-bot: rgba(255, 255, 255, 0.11);
+	--ks-cap-ink: #ffffff;
+	--ks-cap-edge: rgba(255, 255, 255, 0.48);
+	--ks-cap-hi: rgba(255, 255, 255, 0.42);
+	--ks-cap-skirt: rgba(0, 0, 0, 0.26);
+	--ks-cap-shade: rgba(0, 0, 0, 0.2);
+	--ks-mod-top: rgba(255, 255, 255, 0.9);
+	--ks-mod-bot: rgba(232, 238, 244, 0.84);
+	--ks-mod-ink: #0e1216;
+	--ks-mod-edge: rgba(255, 255, 255, 0.95);
+	--ks-mod-hi: rgba(255, 255, 255, 0.9);
+	--ks-mod-skirt: rgba(0, 0, 0, 0.18);
+	--ks-mod-lamp: #2f8cff;
+	--ks-press-top: rgba(255, 255, 255, 0.94);
+	--ks-press-bot: rgba(236, 241, 246, 0.9);
+	--ks-press-ink: #0e1216;
+	--ks-press-edge: #ffffff;
+	--ks-press-glow: rgba(255, 255, 255, 0.45);
+	--ks-ctrl: #9fd4ff;
+	--ks-shift: #ffd88a;
+	--ks-alt: #a8f0b8;
+	--ks-win: #e2c4ff;
+	--ks-accent: #ffffff;
+	--ks-accent-ink: #0e1216;
+	--ks-glow: rgba(255, 255, 255, 0.4);
+	--ks-caption-ink: #ffffff;
+	--ks-context-ink: #dce1e7;
+	--ks-joiner-ink: #e6e9ee;
+	--ks-inset-top: rgba(0, 0, 0, 0.36);
+	--ks-inset-bot: rgba(0, 0, 0, 0.28);
+	--ks-inset-ink: #f2f4f6;
+	--ks-inset-edge: rgba(255, 255, 255, 0.26);
+	--ks-inset-shade: rgba(0, 0, 0, 0.45);
+	--ks-inset-lip: rgba(255, 255, 255, 0.16);
+	--ks-badge-ink: #ffffff;
+	--ks-screen-top: rgba(0, 0, 0, 0.5);
+	--ks-screen-bot: rgba(0, 0, 0, 0.6);
+	--ks-screen-ink: #e9f6ff;
+	--ks-screen-glow: rgba(160, 220, 255, 0.4);
+	--ks-screen-rim: rgba(255, 255, 255, 0.26);
+	--ks-lamp-paused: #ffc266;
+	--ks-lamp-hidden: #9fd4ff;
+	--ks-lamp-live: #a8f0b8;
+	--ks-lamp-ring: rgba(0, 0, 0, 0.6);
+	--ks-mouse-body: rgba(255, 255, 255, 0.16);
+	--ks-mouse-line: #ffffff;
+	--ks-mouse-hit: #ffffff;
+}
+
+/* The frost. Only this theme pays for a backdrop filter; it shows where the
+   page has something behind the plate (the settings preview). */
+.ks-stage[data-theme='glass'] .ks-callout,
+.ks-stage[data-theme='glass'] .ks-indicator {
+	-webkit-backdrop-filter: blur(var(--ks-plate-blur)) saturate(1.3);
+	backdrop-filter: blur(var(--ks-plate-blur)) saturate(1.3);
+}

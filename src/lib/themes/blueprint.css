@@ -1,0 +1,66 @@
+/* ==========================================================================
+   BLUEPRINT: deep drafting blue with white line work. White outlines and an
+   inverted white modifier key read like a drawing sheet. No grid, anywhere.
+   Original values.
+   ========================================================================== */
+.ks-stage[data-theme='blueprint'] {
+	--ks-edge-w: 1px;
+	--ks-plate-top: #133d6b;
+	--ks-plate-bot: #0d2c50;
+	--ks-plate-edge: #8fb4dc;
+	--ks-plate-edge-top: #c4dbf3;
+	--ks-plate-hi: rgba(255, 255, 255, 0.18);
+	--ks-plate-shade: rgba(3, 12, 28, 0.55);
+	--ks-plate-shade-far: rgba(3, 12, 28, 0.45);
+	--ks-plate-glow: rgba(120, 180, 255, 0.24);
+	--ks-plate-blur: 0px;
+	--ks-tab: #ffffff;
+	--ks-cap-top: #1d4f86;
+	--ks-cap-bot: #174272;
+	--ks-cap-ink: #ffffff;
+	--ks-cap-edge: #dce9f7;
+	--ks-cap-hi: rgba(255, 255, 255, 0.24);
+	--ks-cap-skirt: rgba(2, 10, 24, 0.45);
+	--ks-cap-shade: rgba(3, 12, 28, 0.5);
+	--ks-mod-top: #f6f9fc;
+	--ks-mod-bot: #dde8f4;
+	--ks-mod-ink: #0d2c50;
+	--ks-mod-edge: #ffffff;
+	--ks-mod-hi: rgba(255, 255, 255, 0.9);
+	--ks-mod-skirt: rgba(13, 44, 80, 0.32);
+	--ks-mod-lamp: #1f6fd1;
+	--ks-press-top: #ffffff;
+	--ks-press-bot: #e4eef8;
+	--ks-press-ink: #0b2140;
+	--ks-press-edge: #ffffff;
+	--ks-press-glow: rgba(160, 205, 255, 0.55);
+	--ks-ctrl: #8ec5ff;
+	--ks-shift: #ffd479;
+	--ks-alt: #9ee6b8;
+	--ks-win: #d4b8ff;
+	--ks-accent: #8ec5ff;
+	--ks-accent-ink: #0b2140;
+	--ks-glow: rgba(142, 197, 255, 0.5);
+	--ks-caption-ink: #ffffff;
+	--ks-context-ink: #c4d8ee;
+	--ks-joiner-ink: #a9c6e6;
+	--ks-inset-top: #0a2341;
+	--ks-inset-bot: #0d2a4c;
+	--ks-inset-ink: #d6e5f5;
+	--ks-inset-edge: rgba(184, 210, 238, 0.35);
+	--ks-inset-shade: rgba(0, 6, 16, 0.6);
+	--ks-inset-lip: rgba(184, 210, 238, 0.2);
+	--ks-badge-ink: #ffffff;
+	--ks-screen-top: #0a2341;
+	--ks-screen-bot: #071a32;
+	--ks-screen-ink: #a8d4ff;
+	--ks-screen-glow: rgba(120, 180, 255, 0.45);
+	--ks-screen-rim: rgba(184, 210, 238, 0.3);
+	--ks-lamp-paused: #ffb347;
+	--ks-lamp-hidden: #ffd479;
+	--ks-lamp-live: #9ee6b8;
+	--ks-lamp-ring: #031020;
+	--ks-mouse-body: #174272;
+	--ks-mouse-line: #dce9f7;
+	--ks-mouse-hit: #ffffff;
+}

@@ -1,0 +1,154 @@
+/* The overlay page owns a transparent, margin-free, full-size root. OBS
+   injects its Custom CSS after load (by default `body { background-color:
+   rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }`), so nothing here
+   relies on body margins: the app root is fixed to the viewport. */
+html,
+body {
+	margin: 0 !important;
+	padding: 0 !important;
+	width: 100%;
+	height: 100%;
+	overflow: hidden !important;
+	background: transparent !important;
+}
+
+#app {
+	position: fixed;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	overflow: hidden;
+	background: transparent;
+	pointer-events: none;
+}
+
+/* The connection card: a floating housing (plate.css .plate-housing) in the
+   active theme, centered. It fades in after a short grace period so a quick
+   connect never flashes it. */
+.ks-waiting {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	box-sizing: border-box;
+	width: min(92%, calc(var(--ks-u) * 15));
+	padding: calc(var(--ks-u) * 0.5) calc(var(--ks-u) * 0.6) calc(var(--ks-u) * 0.55);
+	border: var(--ks-edge-w) solid var(--ks-plate-edge);
+	border-radius: calc(var(--ks-u) * 0.3);
+	background: linear-gradient(to bottom, var(--ks-plate-top), var(--ks-plate-bot));
+	box-shadow:
+		inset 0 1px 0 0 var(--ks-plate-hi),
+		inset 0 0 0 3px rgba(255, 255, 255, 0.03),
+		0 0 calc(var(--ks-u) * 0.5) 0 var(--ks-plate-glow),
+		0 calc(var(--ks-u) * 0.25) calc(var(--ks-u) * 0.6) calc(var(--ks-u) * -0.1)
+			var(--ks-plate-shade),
+		0 calc(var(--ks-u) * 0.55) calc(var(--ks-u) * 1) calc(var(--ks-u) * -0.45)
+			var(--ks-plate-shade-far);
+	color: var(--ks-caption-ink);
+	transform: translate(-50%, -50%);
+	animation: ks-waiting-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) 600ms backwards;
+}
+.ks-waiting::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	left: calc(var(--ks-u) * 0.6);
+	width: calc(var(--ks-u) * 1.4);
+	height: calc(var(--ks-u) * 0.08);
+	background: var(--ks-tab);
+	clip-path: polygon(
+		0 0,
+		100% 0,
+		calc(100% - var(--ks-u) * 0.08) 100%,
+		calc(var(--ks-u) * 0.08) 100%
+	);
+}
+@keyframes ks-waiting-in {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+.ks-waiting-head {
+	display: inline-flex;
+	align-items: center;
+	gap: calc(var(--ks-u) * 0.18);
+	height: calc(var(--ks-u) * 0.62);
+	padding: 0 calc(var(--ks-u) * 0.24) 0 calc(var(--ks-u) * 0.2);
+	border-radius: calc(var(--ks-u) * 0.14);
+	background: linear-gradient(to bottom, var(--ks-inset-top), var(--ks-inset-bot));
+	box-shadow:
+		inset 0 0 0 1px var(--ks-inset-edge),
+		inset 0 2px 2px -1px var(--ks-inset-shade),
+		inset 0 -1px 0 0 var(--ks-inset-lip);
+	color: var(--ks-inset-ink);
+}
+.ks-waiting-lamp {
+	width: calc(var(--ks-u) * 0.16);
+	height: calc(var(--ks-u) * 0.16);
+	border-radius: 50%;
+	background: var(--ks-lamp-paused);
+	box-shadow:
+		0 0 0 1px var(--ks-lamp-ring),
+		0 0 calc(var(--ks-u) * 0.16) calc(var(--ks-u) * 0.02) var(--ks-lamp-paused);
+}
+.ks-waiting-lamp.is-open {
+	background: var(--ks-lamp-live);
+	box-shadow:
+		0 0 0 1px var(--ks-lamp-ring),
+		0 0 calc(var(--ks-u) * 0.16) calc(var(--ks-u) * 0.02) var(--ks-lamp-live);
+}
+@media (prefers-reduced-motion: no-preference) {
+	.ks-waiting-lamp {
+		animation: ks-waiting-blink 1600ms ease-in-out infinite;
+	}
+}
+@keyframes ks-waiting-blink {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.35;
+	}
+}
+.ks-waiting-label {
+	font-family: var(--ks-font-mono);
+	font-size: calc(var(--ks-u) * 0.3);
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	line-height: 1;
+}
+.ks-waiting-title {
+	margin: calc(var(--ks-u) * 0.36) 0 calc(var(--ks-u) * 0.16);
+	font-family: var(--ks-font-title);
+	font-weight: 700;
+	font-size: calc(var(--ks-u) * 0.5);
+	line-height: 1.2;
+	letter-spacing: 0.04em;
+	color: var(--ks-caption-ink);
+}
+.ks-waiting-line {
+	margin: 0 0 calc(var(--ks-u) * 0.12);
+	font-family: var(--ks-font-mono);
+	font-size: calc(var(--ks-u) * 0.36);
+	letter-spacing: 0.04em;
+	color: var(--ks-context-ink);
+}
+.ks-waiting-hint {
+	margin: 0;
+	font-family: var(--ks-font-caption);
+	font-weight: 500;
+	font-size: calc(var(--ks-u) * 0.44);
+	line-height: 1.35;
+	color: var(--ks-caption-ink);
+}
+
+@supports (corner-shape: superellipse(0.25)) {
+	.ks-waiting,
+	.ks-waiting-head {
+		corner-shape: superellipse(0.25);
+	}
+}

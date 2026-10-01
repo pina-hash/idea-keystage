@@ -1,0 +1,166 @@
+/* ==========================================================================
+   IDEA Keystage design tokens, ported (copied and adapted, not imported) from
+   IDEA Classroom (pina-hash/idea-app at 8d703f514646282245c8682b1d7c4cd469ece4b3)
+   so the settings window and the overlay read as the same family:
+
+     src/lib/design-system/colors.css      the IDEA palette, the classroom
+                                           register (surfaces, text tiers,
+                                           boundary) and the role layer
+     src/lib/design-system/typography.css  the three families, weights, the
+                                           label recipe's tracking
+     src/lib/design-system/effects.css     rim-light glows, machined bevels,
+                                           elevation, radii, spacing
+     src/lib/design-system/motion.css      the reduced-motion gate (as a rule)
+     src/lib/design-system/themes/space-white.css
+                                           the light register
+
+   Left out on purpose: the blueprint grid backdrop (no grid backgrounds
+   anywhere), every color-mix() fill (OBS 30 embeds Chromium 103, which has no
+   color-mix), the notebook and per-app identity tokens, and the Chakra Petch
+   hero face (not bundled here; Orbitron carries titles).
+
+   Light theme: put data-plate="space-white" on the root element of a page.
+   ========================================================================== */
+
+:root {
+	/* --- The IDEA palette (colors.css). ----------------------------------- */
+	--bg0: #121a12;
+	--bg1: #1a2a1a;
+	--bg2: #222e22;
+	--plate: #2c3c2c;
+	--green: #78b870; /* primary: mint rim-light */
+	--gold: #c8a848; /* aged brass */
+	--cyan: #5abda8; /* patina: metadata, focus */
+	--amber: #d08030; /* copper: warning */
+	--teal: #3ea368; /* in progress */
+	--violet: #7050a8;
+	--violet-ink: #a08ac7;
+	--white: #eae6d8; /* bone */
+	--dim: #849080;
+	--ice: #a9bcab;
+	--gear: #75846f;
+	--edge: #0d120c;
+	--crimson: #d95f5f; /* reserved: live, recording, error */
+
+	/* --- The classroom register (colors.css, calm surfaces). -------------- */
+	--surface-0: #0a0c0b;
+	--surface-1: #101312;
+	--surface-2: #161a18;
+	--surface-raised: #161a18;
+	--hairline: rgba(255, 255, 255, 0.08); /* decoration only */
+	--boundary: #6f7b73; /* load-bearing boundary, 3:1 or more */
+	--text-1: #e7eae8;
+	--text-2: #9aa49d;
+	--text-3: #5c665f; /* decorative only, never body copy */
+	--green-tint: #0e3b1f;
+
+	/* --- Roles (colors.css role layer). ----------------------------------- */
+	--accent-ink: var(--green);
+	--accent-fill: var(--green);
+	--accent-on-fill: var(--bg0);
+	--status-ok: var(--green);
+	--status-warn: var(--amber);
+	--status-danger: var(--crimson);
+	--status-info: var(--cyan);
+	--signal-hot: var(--amber);
+	--focus-ring: var(--cyan);
+	--hover-ink: var(--gold);
+
+	/* --- Typography (typography.css). -------------------------------------- */
+	--font-display: 'Rajdhani', 'Segoe UI', sans-serif;
+	--font-mono: 'Share Tech Mono', 'Consolas', monospace;
+	--font-title: 'Orbitron', 'Rajdhani', sans-serif;
+	--fw-regular: 400;
+	--fw-medium: 500;
+	--fw-semibold: 600;
+	--fw-bold: 700;
+	--fs-h1: 2.4rem;
+	--fs-h2: 1.4rem;
+	--fs-h3: 1.2rem;
+	--fs-body: 1.05rem;
+	--fs-sm: 0.9rem;
+	--fs-label: 0.72rem;
+	--fs-micro: 0.6rem;
+	--lh-tight: 1.15;
+	--lh-body: 1.6;
+	--track-label: 0.14em;
+	--track-wide: 0.22em;
+
+	/* --- Effects (effects.css). -------------------------------------------- */
+	--glow-green: 0 0 6px rgba(120, 184, 112, 0.48), 0 0 18px rgba(120, 184, 112, 0.2);
+	--glow-gold: 0 0 6px rgba(200, 168, 72, 0.48), 0 0 18px rgba(200, 168, 72, 0.2);
+	--glow-cyan: 0 0 6px rgba(90, 189, 168, 0.48), 0 0 18px rgba(90, 189, 168, 0.2);
+	--bevel-raised:
+		inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.45),
+		0 2px 3px rgba(0, 0, 0, 0.45);
+	--bevel-inset: inset 0 2px 4px rgba(0, 0, 0, 0.5), inset 0 -1px 0 rgba(255, 255, 255, 0.07);
+	--elevation-1: var(--bevel-raised);
+	--elevation-2: 0 10px 30px rgba(0, 0, 0, 0.45);
+	--radius-chip: 2px;
+	--radius-control: 3px;
+	--radius-card: 4px;
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.5rem;
+	--space-6: 2rem;
+	--space-7: 2.5rem;
+	--space-8: 3.5rem;
+
+	/* --- Motion. Every animation is gated on prefers-reduced-motion:
+	   no-preference at its point of use (motion.css's rule). ------------- */
+	--ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+	--ease-in: cubic-bezier(0.4, 0, 1, 1);
+	--dur-quick: 120ms;
+	--dur-settle: 180ms;
+}
+
+/* --- Space White, the light register (themes/space-white.css). ---------- */
+:root[data-plate='space-white'] {
+	--bg0: #e8eceb;
+	--bg1: #f7f9f9;
+	--bg2: #edf1f0;
+	--plate: #dde3e1;
+	--edge: #f7f9f9;
+	--surface-0: #e8eceb;
+	--surface-1: #f7f9f9;
+	--surface-2: #edf1f0;
+	--surface-raised: #fbfcfc;
+	--green-tint: #dcebd8;
+	--text-1: #0d1311;
+	--text-2: #384340;
+	--text-3: #56625e;
+	--white: #0d1311;
+	--ice: #43504b;
+	--dim: #505c58;
+	--gear: #5a6662;
+	--boundary: #6f7c78;
+	--hairline: rgba(13, 19, 17, 0.16);
+	--green: #3b6c36;
+	--gold: #715d22;
+	--cyan: #2b6a5d;
+	--amber: #77491b;
+	--teal: #245e3c;
+	--violet: #6e4fa5;
+	--violet-ink: #624697;
+	--crimson: #b42b2b;
+	--accent-ink: var(--green);
+	--accent-fill: var(--green);
+	--accent-on-fill: var(--bg0);
+	--status-ok: var(--green);
+	--status-warn: var(--amber);
+	--status-danger: var(--crimson);
+	--status-info: var(--cyan);
+	--signal-hot: #a64918;
+	--focus-ring: var(--cyan);
+	--hover-ink: var(--green);
+	/* No glow and no blur on a light ground (space-white.css). */
+	--glow-green: 0 0 0 transparent;
+	--glow-gold: 0 0 0 transparent;
+	--glow-cyan: 0 0 0 transparent;
+	--bevel-raised: 0 0 0 transparent;
+	--bevel-inset: 0 0 0 transparent;
+	--elevation-1: 0 0 0 transparent;
+	--elevation-2: 0 3px 0 rgba(13, 19, 17, 0.14);
+}

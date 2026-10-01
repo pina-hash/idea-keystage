@@ -1,0 +1,577 @@
+/* ==========================================================================
+   THE PLATE: IDEA Classroom's shape language, ported (copied and adapted)
+   from pina-hash/idea-app src/lib/classroom/plate.css at
+   8d703f514646282245c8682b1d7c4cd469ece4b3 (round 3 as approved by Mr. Pina
+   on 2026-09-27, with its polish passes).
+
+   RAISED MEANS PRESSABLE, INSET MEANS STATUS. A button, a key, a tab or a
+   toggle is raised: a pillow face, a composite edge, a drop shadow. A status
+   tag, a well, a readout is set INTO the surface: an inner top shadow and a
+   light lip at the foot, never a drop shadow.
+
+   ONE GEOMETRY, PER-THEME COLOR BLOCKS. Three kinds of block, and only one
+   repeats per theme:
+     1. SHAPE (`--plate-r-*`, `--plate-soft`, sizes): declared once.
+     2. COLOR (every other `--plate-*`): once for IDEA (dark, the default),
+        once for Space White (`data-plate="space-white"` on the root). No
+        length appears in a color block: a shadow's geometry is written once
+        in its rule and only its color is a token.
+     3. RULES: written once, no theme in any selector.
+
+   THE LOAD-BEARING BOUNDARY is the outer hairline of a control (3:1 or more
+   against every ground it sits on). Every other band is decoration.
+
+   CORNERS: every control, panel and well is a rounded rectangle. Where the
+   browser supports `corner-shape` (Chromium 139 and later) a corner becomes
+   the approved soft chamfer, superellipse(0.25): a bevel whose ends are
+   rounded. Older engines keep the plain rounded corner, which is finished on
+   its own. The chamfered details below (the lit ring's breaks, the display's
+   lower corners) are drawn with gradients and clip-path, so they show
+   everywhere.
+
+   NO GRID. Nothing here paints a grid, scan lines or a ruled fill.
+
+   What changed from the source: the Classroom's long selector lists became
+   one class per part (`.plate-key`, `.plate-chip`, ...), `@scope` and
+   `:has()` were dropped, and the Matrix block was left out.
+
+   Use: put class `ks-plate` on a page root (it sets the color block), then
+   the part classes on elements.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. SHAPE: declared once.
+   -------------------------------------------------------------------------- */
+.ks-plate {
+	--plate-soft: superellipse(0.25);
+	--plate-r-control: 11px;
+	--plate-r-small: 5px;
+	--plate-r-pad: 8px;
+	--plate-r-panel: 12px;
+	--plate-r-plate: 6px;
+	--plate-cut-screen: 18px;
+	--plate-label-size: 0.6875rem;
+	--plate-label-track: 0.14em;
+	--plate-chip-h: 22px;
+	--plate-ring-inset: 5px;
+	--plate-led: 7px;
+	--plate-target: 44px;
+}
+
+/* --------------------------------------------------------------------------
+   2. COLOR: IDEA (dark), the default. Values from the source's IDEA block.
+   -------------------------------------------------------------------------- */
+.ks-plate {
+	--plate-plate-top: #161918;
+	--plate-plate-bot: #121413;
+	--plate-plate-hi: rgba(255, 255, 255, 0.12);
+	--plate-groove-dk: rgba(0, 0, 0, 0.8);
+	--plate-groove-lt: rgba(255, 255, 255, 0.09);
+	--plate-inset-shade: rgba(0, 0, 0, 0.55);
+	--plate-hair: #656f68;
+	--plate-hair-top: #7a857d;
+	--plate-bezel-mid: rgba(255, 255, 255, 0.06);
+	--plate-bezel-hi: rgba(255, 255, 255, 0.16);
+	--plate-tube-lo: rgba(0, 0, 0, 0.3);
+	--plate-foot: rgba(0, 0, 0, 0.5);
+	--plate-rim-out: rgba(0, 0, 0, 0.5);
+	--plate-drop: rgba(0, 0, 0, 0.55);
+	--plate-drop-far: rgba(0, 0, 0, 0.45);
+	--plate-face-top: #2f3431;
+	--plate-face-bot: #252a27;
+	--plate-face-ground: #2f3431;
+	--plate-lit-top: #383f3a;
+	--plate-lit-bot: #2f3531;
+	--plate-lit-ground: #383f3a;
+	--plate-bloom: rgba(120, 184, 112, 0.3);
+	--plate-press-top: #121413;
+	--plate-press-bot: #1c1f1d;
+	--plate-press-shade: rgba(0, 0, 0, 0.7);
+	--plate-disabled-face: #1a1d1b;
+	--plate-disabled-edge: #3e4540;
+	--plate-panel-top: #1c1f1d;
+	--plate-panel-bot: #171a18;
+	--plate-panel-ground: #1c1f1d;
+	--plate-panel-hi: rgba(255, 255, 255, 0.12);
+	--plate-frame: rgba(255, 255, 255, 0.04);
+	--plate-frame-in: rgba(0, 0, 0, 0.3);
+	--plate-frame-lo: rgba(0, 0, 0, 0.35);
+	--plate-well-shade: #050606;
+	--plate-well-top: #0a0b0b;
+	--plate-well-face: #0f1110;
+	--plate-well-ground: #0f1110;
+	--plate-well-lip: rgba(255, 255, 255, 0.2);
+	--plate-divider: #6f7b73;
+	--plate-chip-top: #121413;
+	--plate-chip-bot: #171a18;
+	--plate-chip-ground: #171a18;
+	--plate-chip-edge: rgba(255, 255, 255, 0.13);
+	--plate-chip-shade: rgba(0, 0, 0, 0.6);
+	--plate-chip-lip: rgba(255, 255, 255, 0.1);
+	--plate-ink: #e7eae8;
+	--plate-ink-2: #b9c0bb;
+	--plate-caption: #b9c0bb;
+	--plate-btn-ink: #e7eae8;
+	--plate-disabled: #a9bcab;
+	--plate-accent: #78b870;
+	--plate-accent-tint: rgba(120, 184, 112, 0.35);
+	--plate-accent-glow: rgba(143, 224, 138, 0.55);
+	--plate-primary-face: #2f4b2c;
+	--plate-primary-ink: #e7eae8;
+	--plate-primary-hi: rgba(143, 224, 138, 0.35);
+	--plate-primary-foot: rgba(0, 0, 0, 0.35);
+	--plate-primary-glow: rgba(120, 184, 112, 0.28);
+	--plate-primary-inglow: rgba(120, 184, 112, 0.35);
+	--plate-sel-face: #2f4b2c;
+	--plate-sel-ink: #e7eae8;
+	--plate-sel-edge: rgba(143, 224, 138, 0.75);
+	--plate-sel-glow: rgba(120, 184, 112, 0.3);
+	--plate-danger-ink: #e28383;
+	--plate-led-off: #2c332f;
+	--plate-led-off-hi: #48514b;
+	--plate-led-ring: #050706;
+	--plate-led-halo: rgba(143, 224, 138, 0.6);
+	--plate-led-amber: #d08030;
+	--plate-led-gold: #c8a848;
+	--plate-led-red: #d95f5f;
+	--plate-cup: #0c0e0d;
+	--plate-cup-in: #000000;
+	--plate-screen-top: #16201a;
+	--plate-screen-bot: #0b100d;
+	--plate-screen-rim: rgba(143, 224, 138, 0.16);
+	--plate-screen-shade: rgba(0, 0, 0, 0.75);
+	--plate-screen-ink: #81bd79;
+	--plate-screen-glow: rgba(120, 184, 112, 0.65);
+	--plate-glass: rgba(255, 255, 255, 0.06);
+	--plate-hover-ink: #c8a848;
+	--plate-focus: #5abda8;
+}
+
+/* SPACE WHITE: the reference kit's own relationships, IDEA green where the
+   kit has orange. Values from the source's Space White block. */
+:root[data-plate='space-white'] .ks-plate,
+.ks-plate[data-plate='space-white'] {
+	--plate-plate-top: #e4e8ee;
+	--plate-plate-bot: #dfe3ea;
+	--plate-plate-hi: #f6f8fb;
+	--plate-groove-dk: rgba(84, 92, 110, 0.42);
+	--plate-groove-lt: #f7f9fc;
+	--plate-inset-shade: rgba(84, 92, 110, 0.24);
+	--plate-hair: #757c86;
+	--plate-hair-top: #757c86;
+	--plate-bezel-mid: #a3a9b0;
+	--plate-bezel-hi: #cdd1d6;
+	--plate-tube-lo: rgba(120, 128, 138, 0.16);
+	--plate-foot: rgba(96, 104, 114, 0.45);
+	--plate-rim-out: rgba(80, 90, 104, 0.12);
+	--plate-drop: rgba(70, 80, 100, 0.24);
+	--plate-drop-far: rgba(70, 80, 100, 0.22);
+	--plate-face-top: #b8bdc5;
+	--plate-face-bot: #cdd2d9;
+	--plate-face-ground: #b8bdc5;
+	--plate-lit-top: #d8dbde;
+	--plate-lit-bot: #dde0e3;
+	--plate-lit-ground: #d8dbde;
+	--plate-bloom: rgba(255, 255, 255, 0);
+	--plate-press-top: #adb2ba;
+	--plate-press-bot: #c3c8cf;
+	--plate-press-shade: rgba(60, 68, 84, 0.5);
+	--plate-disabled-face: #dde1e7;
+	--plate-disabled-edge: #a0a6ad;
+	--plate-panel-top: #f5f7f9;
+	--plate-panel-bot: #e2e6ec;
+	--plate-panel-ground: #e2e6ec;
+	--plate-panel-hi: #ffffff;
+	--plate-frame: rgba(255, 255, 255, 0.55);
+	--plate-frame-in: rgba(128, 136, 148, 0.2);
+	--plate-frame-lo: rgba(110, 118, 130, 0.22);
+	--plate-well-shade: #a9aeb8;
+	--plate-well-top: #bfc4ce;
+	--plate-well-face: #c8ccd5;
+	--plate-well-ground: #bfc4ce;
+	--plate-well-lip: #eef1f6;
+	--plate-divider: #7d848d;
+	--plate-chip-top: #dde0e6;
+	--plate-chip-bot: #e6e9ee;
+	--plate-chip-ground: #dde0e6;
+	--plate-chip-edge: #b3b8c0;
+	--plate-chip-shade: rgba(70, 80, 100, 0.3);
+	--plate-chip-lip: rgba(255, 255, 255, 0.85);
+	--plate-ink: #0d1311;
+	--plate-ink-2: #384340;
+	--plate-caption: #545a61;
+	--plate-btn-ink: #2d3238;
+	--plate-disabled: #43504b;
+	--plate-accent: #3b6c36;
+	--plate-accent-tint: rgba(59, 108, 54, 0.3);
+	--plate-accent-glow: #cfe5cb;
+	--plate-primary-face: #3b6c36;
+	--plate-primary-ink: #f7f9f9;
+	--plate-primary-hi: #9dc497;
+	--plate-primary-foot: rgba(20, 40, 18, 0.45);
+	--plate-primary-glow: rgba(255, 255, 255, 0);
+	--plate-primary-inglow: rgba(255, 255, 255, 0);
+	--plate-sel-face: #3b6c36;
+	--plate-sel-ink: #f7f9f9;
+	--plate-sel-edge: #cfe5cb;
+	--plate-sel-glow: rgba(255, 255, 255, 0);
+	--plate-danger-ink: #882020;
+	--plate-led-off: #9aa0a8;
+	--plate-led-off-hi: #b9bec5;
+	--plate-led-ring: #7c828a;
+	--plate-led-halo: rgba(120, 184, 112, 0.35);
+	--plate-led-amber: #e08a2e;
+	--plate-led-gold: #d9b84e;
+	--plate-led-red: #c94848;
+	--plate-cup: #aeb4bc;
+	--plate-cup-in: #8c929a;
+	--plate-screen-top: #383c44;
+	--plate-screen-bot: #25282e;
+	--plate-screen-rim: rgba(255, 255, 255, 0.3);
+	--plate-screen-shade: rgba(0, 0, 0, 0.55);
+	--plate-screen-ink: #78b870;
+	--plate-screen-glow: rgba(120, 184, 112, 0.6);
+	--plate-glass: rgba(255, 255, 255, 0.06);
+	--plate-hover-ink: #3b6c36;
+	--plate-focus: #2b6a5d;
+}
+
+/* --------------------------------------------------------------------------
+   3. RULES. Written once; none names a theme.
+   -------------------------------------------------------------------------- */
+
+/* The page ground: the plate itself. */
+.ks-plate.plate-page {
+	background-color: var(--plate-plate-bot);
+	background-image: linear-gradient(
+		to bottom,
+		var(--plate-plate-top),
+		var(--plate-plate-bot) 28rem
+	);
+	background-repeat: no-repeat;
+	color: var(--plate-ink);
+	font-family: var(--font-display);
+}
+
+/* Mono labels: the 11px floor, uppercase, tracked. A label names a section
+   of content and sits ABOVE it. */
+.ks-plate .plate-label {
+	font-family: var(--font-mono);
+	font-size: var(--plate-label-size);
+	letter-spacing: var(--plate-label-track);
+	text-transform: uppercase;
+	color: var(--plate-caption);
+}
+
+/* --- Keys: raised pillows with the composite edge. ---------------------------
+   Top to bottom: the hairline (the border, load-bearing), a light ring inside
+   it with a crisp top highlight, the face gradient, a soft darker foot;
+   outside, a faint tray and a soft shadow falling downward. */
+.ks-plate .plate-key {
+	box-sizing: border-box;
+	min-height: var(--plate-target);
+	min-width: var(--plate-target);
+	padding: 0 0.9rem;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	font-family: var(--font-display);
+	font-weight: 600;
+	font-size: 1rem;
+	letter-spacing: 0.04em;
+	cursor: pointer;
+	border: 1px solid;
+	border-color: var(--plate-hair-top) var(--plate-hair) var(--plate-hair);
+	border-radius: var(--plate-r-control);
+	background:
+		linear-gradient(to bottom, var(--plate-face-top), var(--plate-face-bot)) padding-box,
+		linear-gradient(to bottom, var(--plate-hair-top), var(--plate-hair)) border-box;
+	background-color: var(--plate-face-ground);
+	box-shadow:
+		inset 0 0 0 1px var(--plate-bezel-mid),
+		inset 0 2px 0 0 var(--plate-bezel-hi),
+		inset 0 -2px 2px -1px var(--plate-foot),
+		0 0 0 1px var(--plate-rim-out),
+		0 2px 3px 0 var(--plate-drop),
+		0 6px 10px -5px var(--plate-drop-far);
+	color: var(--plate-btn-ink);
+	outline: none;
+}
+.ks-plate .plate-key:hover {
+	border-color: var(--plate-hover-ink);
+}
+.ks-plate .plate-key:focus-visible {
+	outline: 2px solid var(--plate-focus);
+	outline-offset: 2px;
+}
+/* PRIMARY: the one flat accent face, a deep accent with a green glow inside it
+   on the dark theme. */
+.ks-plate .plate-key.is-primary {
+	background:
+		linear-gradient(var(--plate-primary-face), var(--plate-primary-face)) padding-box,
+		linear-gradient(to bottom, var(--plate-hair-top), var(--plate-hair)) border-box;
+	background-color: var(--plate-primary-face);
+	color: var(--plate-primary-ink);
+	box-shadow:
+		inset 0 0 0 2px var(--plate-bezel-mid),
+		inset 0 3px 0 0 var(--plate-primary-hi),
+		inset 0 0 8px 2px var(--plate-primary-inglow),
+		inset 0 -3px 3px -1px var(--plate-primary-foot),
+		0 0 0 1px var(--plate-rim-out),
+		0 0 8px 1px var(--plate-primary-glow),
+		0 2px 3px 0 var(--plate-drop),
+		0 6px 10px -5px var(--plate-drop-far);
+}
+/* DANGER keeps the danger ink on a grey key: the word says what it costs. */
+.ks-plate .plate-key.is-danger {
+	color: var(--plate-danger-ink);
+}
+/* PRESSED sinks: a darker face with the shadow inside at the top. Nothing moves. */
+.ks-plate .plate-key:active:not(:disabled, [aria-disabled='true']) {
+	background:
+		linear-gradient(to bottom, var(--plate-press-top), var(--plate-press-bot)) padding-box,
+		linear-gradient(to bottom, var(--plate-hair-top), var(--plate-hair)) border-box;
+	background-color: var(--plate-press-top);
+	box-shadow:
+		inset 0 3px 4px 0 var(--plate-press-shade),
+		inset 0 1px 1px 0 var(--plate-press-shade),
+		inset 0 -1px 0 0 var(--plate-bezel-hi),
+		0 0 0 1px var(--plate-rim-out);
+}
+/* LIT: a key that is ON. The face shifts lighter and a solid accent ring sits
+   inside the bezel. aria-pressed (or the word) says so too: color is never
+   the only signal. */
+.ks-plate
+	.plate-key:is([aria-pressed='true'], [aria-checked='true'], [aria-selected='true'], .is-on):not(
+		:disabled,
+		[aria-disabled='true']
+	) {
+	position: relative;
+	background:
+		linear-gradient(to bottom, var(--plate-lit-top), var(--plate-lit-bot)) padding-box,
+		linear-gradient(to bottom, var(--plate-hair-top), var(--plate-hair)) border-box;
+	background-color: var(--plate-lit-ground);
+	box-shadow:
+		inset 0 0 0 1px var(--plate-bezel-mid),
+		inset 0 0 0 3px var(--plate-accent),
+		inset 0 4px 0 0 var(--plate-panel-hi),
+		0 0 0 1px var(--plate-rim-out),
+		0 0 8px 1px var(--plate-bloom),
+		0 2px 3px 0 var(--plate-drop);
+}
+/* The wide lit key carries the BROKEN ring: two chamfered breaks in the
+   accent ring (a gradient cut at 118 degrees), drawn on top of the solid ring. */
+.ks-plate
+	.plate-key.is-wide:is(
+		[aria-pressed='true'],
+		[aria-checked='true'],
+		[aria-selected='true'],
+		.is-on
+	)::before {
+	content: '';
+	position: absolute;
+	inset: calc(var(--plate-ring-inset) - 1px);
+	pointer-events: none;
+	background:
+		linear-gradient(118deg, var(--plate-accent) calc(100% - 3px), transparent calc(100% - 2.5px))
+			right 15px top 0 / 13px 3.5px,
+		linear-gradient(var(--plate-accent), var(--plate-accent)) right 31px top 0 / 2px 2px,
+		linear-gradient(var(--plate-accent), var(--plate-accent)) right 35px top 0 / 2px 2px,
+		linear-gradient(var(--plate-accent), var(--plate-accent)) left 11px bottom 0 / 2px 2px,
+		linear-gradient(var(--plate-accent), var(--plate-accent)) left 15px bottom 0 / 2px 2px;
+	background-repeat: no-repeat;
+}
+/* DISABLED: an UNLIT key, a flat face a shade off the plate, the word itself. */
+.ks-plate .plate-key:is(:disabled, [aria-disabled='true']) {
+	cursor: default;
+	background: linear-gradient(var(--plate-disabled-face), var(--plate-disabled-face)) padding-box;
+	background-color: var(--plate-disabled-face);
+	box-shadow:
+		inset 0 1px 0 0 var(--plate-plate-hi),
+		inset 0 -2px 2px -1px var(--plate-tube-lo);
+	color: var(--plate-disabled);
+	border: 1px solid var(--plate-disabled-edge);
+}
+@media (prefers-reduced-motion: no-preference) {
+	.ks-plate .plate-key {
+		transition:
+			color 120ms ease-out,
+			border-color 120ms ease-out,
+			box-shadow 120ms ease-out,
+			background-color 120ms ease-out;
+	}
+}
+
+/* --- Chips: RECESSED TAGS, never keys. ----------------------------------------
+   A face a shade darker than the ground, a shadow under its top lip, a light
+   lip at its foot, a quiet edge and NO drop shadow. */
+.ks-plate .plate-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	box-sizing: border-box;
+	min-height: var(--plate-chip-h);
+	padding: 0 6px;
+	border: 0;
+	border-radius: var(--plate-r-small);
+	font-family: var(--font-mono);
+	font-size: var(--plate-label-size);
+	line-height: 1;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	color: var(--plate-ink);
+	background-color: var(--plate-chip-ground);
+	background-image: linear-gradient(to bottom, var(--plate-chip-top), var(--plate-chip-bot));
+	box-shadow:
+		inset 0 0 0 1px var(--plate-chip-edge),
+		inset 0 2px 2px -1px var(--plate-chip-shade),
+		inset 0 -1px 0 0 var(--plate-chip-lip),
+		0 1px 0 0 var(--plate-chip-lip);
+}
+
+/* A status lamp inside a chip or beside a word. The word carries the meaning;
+   the lamp is never the only signal. Set --plate-led-color on it. */
+.ks-plate .plate-lamp {
+	--plate-led-color: var(--plate-accent);
+	flex: none;
+	display: inline-block;
+	width: var(--plate-led);
+	height: var(--plate-led);
+	border-radius: 50%;
+	background: radial-gradient(
+		circle at 42% 36%,
+		rgba(255, 255, 255, 0.8) 0 0.8px,
+		var(--plate-led-color) 1.8px
+	);
+	box-shadow:
+		0 0 0 1px var(--plate-led-ring),
+		0 0 5px 1px var(--plate-led-color);
+}
+.ks-plate .plate-lamp.is-off {
+	background: radial-gradient(circle, var(--plate-led-off-hi) 0 0.7px, var(--plate-led-off) 2px);
+	box-shadow: 0 0 0 1px var(--plate-led-ring);
+}
+.ks-plate .plate-lamp.is-amber {
+	--plate-led-color: var(--plate-led-amber);
+}
+.ks-plate .plate-lamp.is-gold {
+	--plate-led-color: var(--plate-led-gold);
+}
+.ks-plate .plate-lamp.is-red {
+	--plate-led-color: var(--plate-led-red);
+}
+
+/* --- Panels: raised cards. -----------------------------------------------------
+   A face gradient, the hairline, one light line inside the top edge and a
+   long, soft shadow falling down and a little left. */
+.ks-plate .plate-panel {
+	border: 1px solid var(--plate-hair);
+	border-radius: var(--plate-r-panel);
+	background-color: var(--plate-panel-ground);
+	background-image: linear-gradient(to bottom, var(--plate-panel-top), var(--plate-panel-bot));
+	box-shadow:
+		inset 0 1px 0 0 var(--plate-panel-hi),
+		0 1px 2px 0 var(--plate-drop),
+		0 8px 14px -6px var(--plate-drop),
+		-2px 18px 30px -14px var(--plate-drop-far);
+	color: var(--plate-ink);
+}
+/* A panel inside a panel: a shorter shadow, so the stack reads as one assembly. */
+.ks-plate .plate-panel .plate-panel {
+	box-shadow:
+		inset 0 1px 0 0 var(--plate-panel-hi),
+		0 1px 2px 0 var(--plate-drop),
+		0 4px 8px -4px var(--plate-drop);
+}
+
+/* --- Wells: fields and dropdowns sit in recessed troughs. -------------------- */
+.ks-plate .plate-well {
+	box-sizing: border-box;
+	min-height: var(--plate-target);
+	border: 1px solid var(--plate-hair);
+	border-radius: var(--plate-r-control);
+	background-color: var(--plate-well-ground);
+	background-image: linear-gradient(to bottom, var(--plate-well-top), var(--plate-well-face) 30%);
+	box-shadow:
+		inset 0 1px 0 0 var(--plate-well-shade),
+		inset 0 2px 3px -1px var(--plate-well-shade),
+		0 1px 0 0 var(--plate-well-lip);
+	color: var(--plate-ink);
+	font: inherit;
+}
+.ks-plate .plate-well:focus-visible,
+.ks-plate .plate-well:focus-within {
+	outline: 2px solid var(--plate-focus);
+	outline-offset: 2px;
+}
+
+/* An etched divider: the dark line with a light line under it. */
+.ks-plate .plate-divider {
+	height: 2px;
+	border: 0;
+	background:
+		linear-gradient(
+				to right,
+				transparent 0,
+				var(--plate-divider) 12px,
+				var(--plate-divider) calc(100% - 12px),
+				transparent 100%
+			)
+			0 0 / 100% 1px no-repeat,
+		linear-gradient(
+				to right,
+				transparent 0,
+				var(--plate-well-lip) 12px,
+				var(--plate-well-lip) calc(100% - 12px),
+				transparent 100%
+			)
+			0 1px / 100% 1px no-repeat;
+}
+
+/* --- Housing: a floating menu or dialog with a moulded frame. ---------------- */
+.ks-plate .plate-housing {
+	border: 1px solid var(--plate-hair);
+	border-radius: var(--plate-r-panel);
+	background-color: var(--plate-panel-ground);
+	background-image: linear-gradient(to bottom, var(--plate-panel-top), var(--plate-panel-bot));
+	box-shadow:
+		inset 0 1px 0 0 var(--plate-panel-hi),
+		inset 0 0 0 3px var(--plate-frame),
+		inset 0 0 3px 4px var(--plate-frame-in),
+		inset 0 -4px 4px -2px var(--plate-frame-lo),
+		0 0 0 1px var(--plate-rim-out),
+		0 10px 24px -4px var(--plate-drop),
+		0 22px 40px -18px var(--plate-drop-far);
+	color: var(--plate-ink);
+}
+
+/* --- The display: dark tinted glass, lighter at its top, its lower corners
+   chamfered, the readout glowing in the accent. It is the one dark island on a
+   Space White page. The chamfer is a clip-path, so it shows in every engine. */
+.ks-plate .plate-screen {
+	position: relative;
+	border-radius: var(--plate-r-pad) var(--plate-r-pad) 0 0;
+	background: linear-gradient(to bottom, var(--plate-screen-top), var(--plate-screen-bot));
+	box-shadow:
+		inset 0 0 0 1px var(--plate-screen-rim),
+		inset 0 6px 12px -6px var(--plate-screen-shade);
+	clip-path: polygon(
+		0 0,
+		100% 0,
+		100% calc(100% - var(--plate-cut-screen)),
+		calc(100% - var(--plate-cut-screen)) 100%,
+		var(--plate-cut-screen) 100%,
+		0 calc(100% - var(--plate-cut-screen))
+	);
+	color: var(--plate-screen-ink);
+	font-family: var(--font-mono);
+	text-shadow: 0 0 8px var(--plate-screen-glow);
+}
+
+/* --- Progressive enhancement: the approved soft chamfer. --------------------- */
+@supports (corner-shape: superellipse(0.25)) {
+	.ks-plate :is(.plate-key, .plate-panel, .plate-well, .plate-housing, .plate-chip) {
+		corner-shape: var(--plate-soft);
+	}
+}

@@ -1,0 +1,69 @@
+/* ==========================================================================
+   STUDIO: soft layered white and gray, from IDEA Classroom's Space White
+   family (idea-app src/lib/classroom/plate.css, the Space White color block,
+   and src/lib/design-system/themes/space-white.css). The IDEA green is
+   darkened into ink for words and edges, as Space White does. A light plate
+   carries its structure with the hairline and a soft cool shadow.
+   ========================================================================== */
+.ks-stage[data-theme='studio'] {
+	--ks-edge-w: 1px;
+	--ks-plate-top: #f5f7f9; /* --plate-panel-top */
+	--ks-plate-bot: #e2e6ec; /* --plate-panel-bot */
+	--ks-plate-edge: #757c86; /* --plate-hair */
+	--ks-plate-edge-top: #8a9098; /* --plate-bracket */
+	--ks-plate-hi: #ffffff; /* --plate-panel-hi */
+	--ks-plate-shade: rgba(70, 80, 100, 0.3); /* --plate-drop, a step deeper */
+	--ks-plate-shade-far: rgba(70, 80, 100, 0.26); /* --plate-drop-far */
+	--ks-plate-glow: rgba(255, 255, 255, 0); /* Space White: no glow */
+	--ks-plate-blur: 0px;
+	--ks-tab: #3b6c36; /* Space White --green */
+	--ks-cap-top: #fdfdfe;
+	--ks-cap-bot: #e8ebef;
+	--ks-cap-ink: #1b2024;
+	--ks-cap-edge: #8f959c;
+	--ks-cap-hi: #ffffff;
+	--ks-cap-skirt: rgba(96, 104, 114, 0.38); /* --plate-foot */
+	--ks-cap-shade: rgba(70, 80, 100, 0.28);
+	--ks-mod-top: #43773d;
+	--ks-mod-bot: #3b6c36; /* Space White --green */
+	--ks-mod-ink: #f7f9f9; /* --surface-1 */
+	--ks-mod-edge: #2f5a2b;
+	--ks-mod-hi: rgba(255, 255, 255, 0.32);
+	--ks-mod-skirt: rgba(20, 40, 18, 0.45); /* --plate-primary-foot */
+	--ks-mod-lamp: #cfe5cb; /* --plate-sel-edge */
+	--ks-press-top: #3f7a39;
+	--ks-press-bot: #356a30;
+	--ks-press-ink: #ffffff;
+	--ks-press-edge: #2f5a2b;
+	--ks-press-glow: rgba(59, 108, 54, 0.3); /* --plate-accent-tint */
+	--ks-ctrl: #3b6c36; /* Space White --green */
+	--ks-shift: #2b6a5d; /* --cyan */
+	--ks-alt: #715d22; /* --gold */
+	--ks-win: #624697; /* --violet-ink */
+	--ks-accent: #3b6c36;
+	--ks-accent-ink: #f7f9f9;
+	--ks-glow: rgba(59, 108, 54, 0.3);
+	--ks-caption-ink: #0d1311; /* --text-1 */
+	--ks-context-ink: #4c5359;
+	--ks-joiner-ink: #545a61; /* --plate-caption */
+	--ks-inset-top: #dde0e6; /* --plate-chip-top */
+	--ks-inset-bot: #e6e9ee; /* --plate-chip-bot */
+	--ks-inset-ink: #384340; /* --text-2 */
+	--ks-inset-edge: #b3b8c0; /* --plate-chip-edge */
+	--ks-inset-shade: rgba(70, 80, 100, 0.3); /* --plate-chip-shade */
+	--ks-inset-lip: rgba(255, 255, 255, 0.85); /* --plate-chip-lip */
+	--ks-badge-ink: #2f5a2b;
+	/* The display stays a dark island, as on Space White. */
+	--ks-screen-top: #383c44; /* --plate-screen-top */
+	--ks-screen-bot: #25282e; /* --plate-screen-bot */
+	--ks-screen-ink: #8ccb84;
+	--ks-screen-glow: rgba(120, 184, 112, 0.5); /* --plate-screen-glow */
+	--ks-screen-rim: rgba(255, 255, 255, 0.3); /* --plate-screen-rim */
+	--ks-lamp-paused: #e08a2e; /* --plate-led-amber */
+	--ks-lamp-hidden: #d9b84e; /* --plate-led-gold */
+	--ks-lamp-live: #78b870;
+	--ks-lamp-ring: #7c828a; /* --plate-led-ring */
+	--ks-mouse-body: #ffffff;
+	--ks-mouse-line: #545a61;
+	--ks-mouse-hit: #3b6c36;
+}
