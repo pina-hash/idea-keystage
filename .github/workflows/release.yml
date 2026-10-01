@@ -13,6 +13,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: '1.97.0'
 
 jobs:
   windows:
@@ -47,10 +48,13 @@ jobs:
       - name: Install npm packages
         run: npm ci
 
-      - name: Rust stable
+      # Pinned to the toolchain every local check ran on (rustc 1.97.0). A new
+      # stable release can add clippy lints that fail -D warnings on an unrelated
+      # push (Rust 1.98.0 did, 2026-10-01). Raise RUST_TOOLCHAIN deliberately.
+      - name: Rust toolchain
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
           rustc --version
           cargo --version
 
