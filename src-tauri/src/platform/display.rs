@@ -119,6 +119,50 @@ pub fn sort_monitors(monitors: &mut [Monitor]) {
     });
 }
 
+/// Decides when a change of the monitor configuration has settled, from a
+/// signature read on every poll. Docking, undocking and resolution changes
+/// pass through intermediate states, so a new signature counts once two
+/// polls in a row agree on it. The first reading is the baseline.
+#[derive(Debug, Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) struct DisplayChangeWatch<S> {
+    reported: Option<S>,
+    pending: Option<S>,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl<S: PartialEq> DisplayChangeWatch<S> {
+    pub(crate) fn new() -> DisplayChangeWatch<S> {
+        DisplayChangeWatch {
+            reported: None,
+            pending: None,
+        }
+    }
+
+    /// Feeds one poll's signature. True when a configuration different from
+    /// the last one reported has now been read twice in a row.
+    pub(crate) fn observe(&mut self, now: S) -> bool {
+        match &self.reported {
+            None => {
+                self.reported = Some(now);
+                return false;
+            }
+            Some(reported) if *reported == now => {
+                self.pending = None;
+                return false;
+            }
+            Some(_) => {}
+        }
+        if self.pending.as_ref() == Some(&now) {
+            self.reported = self.pending.take();
+            true
+        } else {
+            self.pending = Some(now);
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,5 +264,28 @@ mod tests {
         sort_monitors(&mut v);
         let ids: Vec<&str> = v.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, ["p", "a", "c"]);
+    }
+
+    #[test]
+    fn display_changes_are_reported_once_settled() {
+        let mut w = DisplayChangeWatch::new();
+        let qhd = vec![mon("a", "", 0, true)];
+        let mut hd = qhd.clone();
+        hd[0].width = 1280;
+        let mut scaled = qhd.clone();
+        scaled[0].scale = 1.25;
+        assert!(!w.observe(qhd.clone()), "the baseline is not a change");
+        assert!(!w.observe(qhd.clone()));
+        // A new resolution counts once two polls agree on it.
+        assert!(!w.observe(hd.clone()));
+        assert!(w.observe(hd.clone()));
+        assert!(!w.observe(hd.clone()), "reported once");
+        // An intermediate state that does not last is not reported.
+        assert!(!w.observe(qhd.clone()));
+        assert!(!w.observe(hd.clone()));
+        assert!(!w.observe(hd.clone()));
+        // Scaling changes count too.
+        assert!(!w.observe(scaled.clone()));
+        assert!(w.observe(scaled));
     }
 }

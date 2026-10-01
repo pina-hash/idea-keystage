@@ -21,6 +21,20 @@
 //! * UI Automation runs on its own thread ([`super::uia`]) and posts its
 //!   verdicts to this window, so every password decision is made here, on
 //!   one thread, by the fail-closed [`PasswordGate`].
+//! * On every foreground window change (also between two windows of one
+//!   process) the overlay is put back on top of the topmost group without
+//!   waiting for the main thread, and a modifier resync is requested from
+//!   the input receiver, which reads `GetAsyncKeyState` after the hook
+//!   records already queued. A snapshot read here and sent on the context
+//!   channel would not be ordered with the hook stream ("the callback
+//!   function is called before the asynchronous state of the key is
+//!   updated", LowLevelKeyboardProc) and could re-press a modifier released
+//!   a moment before. `ContextEvent::Modifiers` is sent only at start and on
+//!   unlock, as documented.
+//! * The 500 ms poll also compares a cheap monitor signature (rectangles,
+//!   DPI, primary) so resolution, arrangement and scaling changes are
+//!   noticed: the message-only window gets no `WM_DISPLAYCHANGE` ("does not
+//!   receive broadcast messages", Window Features).
 
 use std::cell::{Cell, RefCell};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -48,10 +62,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WTS_SESSION_LOCK, WTS_SESSION_UNLOCK,
 };
 
+use keystage_core::ipc::Monitor;
+
+use super::super::display::DisplayChangeWatch;
 use super::super::{ContextEvent, ForegroundInfo, PasswordGate, PlatformError, Verdict};
 use super::process::{self, ProcessCache};
 use super::uia::UiaThread;
-use super::{layout, now_ms, CURRENT_HKL, FOREGROUND_BLIND, SESSION_LOCKED};
+use super::{
+    hooks, layout, monitors, now_ms, window_style, CURRENT_HKL, FOREGROUND_BLIND, SESSION_LOCKED,
+};
 
 const CLASS_NAME: PCWSTR = w!("IDEAKeystageWatcher");
 
@@ -81,6 +100,17 @@ thread_local! {
     static WINDOW: Cell<isize> = const { Cell::new(0) };
 }
 
+/// How a foreground read resyncs modifiers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ModifierSync {
+    /// Ask the input receiver, which reads after the queued hook records
+    /// (every foreground change).
+    Ordered,
+    /// Send `ContextEvent::Modifiers` (the documented start and unlock
+    /// events).
+    Event,
+}
+
 /// Status flags the handle reads from other threads.
 #[derive(Debug, Default)]
 struct Status {
@@ -106,6 +136,7 @@ struct WatcherState {
     gate: PasswordGate,
     procs: ProcessCache,
     uia: Option<UiaThread>,
+    displays: DisplayChangeWatch<Vec<Monitor>>,
 }
 
 impl WatcherState {
@@ -117,19 +148,24 @@ impl WatcherState {
 
     /// Re-reads everything. `force` re-sends the foreground even if it did
     /// not change.
-    fn refresh(&mut self, force: bool) {
+    fn refresh(&mut self, force: bool, mods: ModifierSync) {
         // SAFETY: no preconditions.
         let hwnd = unsafe { GetForegroundWindow() };
-        self.on_foreground(hwnd, force);
+        self.on_foreground(hwnd, force, mods);
         self.check_win32_password();
     }
 
-    fn on_foreground(&mut self, hwnd: HWND, force: bool) {
+    fn on_foreground(&mut self, hwnd: HWND, force: bool, mods: ModifierSync) {
         let raw = hwnd.0 as isize;
         if !force && raw == self.fg_hwnd {
             return;
         }
         self.fg_hwnd = raw;
+        // Every foreground window change, also between two windows of one
+        // process (which `Foreground` does not report): a topmost window
+        // that just came forward must not cover the overlay (ARCHITECTURE.md
+        // section 6).
+        window_style::reassert_overlay_topmost_async();
         self.fg_tid = if hwnd.0.is_null() {
             0
         } else {
@@ -143,11 +179,31 @@ impl WatcherState {
             self.send(ContextEvent::Foreground(info));
         }
         if super::desktop_readable() {
-            self.send(ContextEvent::Modifiers(
-                process::modifier_snapshot(now_ms()),
-            ));
+            match mods {
+                ModifierSync::Ordered => hooks::request_resync(),
+                ModifierSync::Event => self.send_modifiers(),
+            }
         }
         self.check_layout(false);
+    }
+
+    /// Sends `ContextEvent::Modifiers` when the desktop is readable.
+    fn send_modifiers(&self) {
+        if let Some(snapshot) = super::read_modifiers() {
+            self.send(ContextEvent::Modifiers(snapshot));
+        }
+    }
+
+    /// Notices a settled change of the monitor configuration.
+    fn check_displays(&mut self) {
+        if let Some(signature) = monitors::layout_signature() {
+            if self.displays.observe(signature) {
+                // Platform side of the display-change signal; the event that
+                // carries it to the app needs a ContextEvent variant
+                // (.work/notes/fix-requests.md, WIN-3).
+                tracing::info!("display configuration changed");
+            }
+        }
     }
 
     /// Sends a new legend table when the foreground layout changed. With
@@ -195,7 +251,7 @@ impl WatcherState {
                 SESSION_LOCKED.store(false, Ordering::Release);
                 self.send(ContextEvent::SessionUnlocked { t_ms: now_ms() });
                 // Resync (rule 7): sends Modifiers when the desktop is readable.
-                self.refresh(true);
+                self.refresh(true, ModifierSync::Event);
             }
             _ => {}
         }
@@ -230,11 +286,12 @@ impl WatcherState {
         // SAFETY: no preconditions.
         let hwnd = unsafe { GetForegroundWindow() };
         if hwnd.0 as isize != self.fg_hwnd {
-            self.on_foreground(hwnd, false);
+            self.on_foreground(hwnd, false, ModifierSync::Ordered);
             self.check_win32_password();
         } else {
             self.check_layout(false);
         }
+        self.check_displays();
         if self.ticks.is_multiple_of(WTS_RETRY_TICKS) {
             self.register_session_notifications();
         }
@@ -318,7 +375,7 @@ unsafe extern "system" fn win_event_proc(
     let _ = catch_unwind(AssertUnwindSafe(|| {
         let handled = match event {
             EVENT_SYSTEM_FOREGROUND => with_state(|s| {
-                s.on_foreground(hwnd, false);
+                s.on_foreground(hwnd, false, ModifierSync::Ordered);
                 s.check_win32_password();
             }),
             EVENT_OBJECT_FOCUS => with_state(WatcherState::check_win32_password),
@@ -363,7 +420,7 @@ fn handle_message(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> Optio
         }
         MSG_REFRESH => {
             PENDING.with(|p| p.set(false));
-            if !with_state(|s| s.refresh(true)) {
+            if !with_state(|s| s.refresh(true, ModifierSync::Ordered)) {
                 defer_refresh();
             }
             Some(LRESULT(0))
@@ -499,11 +556,13 @@ fn watcher_thread(
         gate: PasswordGate::new(),
         procs: ProcessCache::new(),
         uia,
+        displays: DisplayChangeWatch::new(),
     };
     state.register_session_notifications();
     // The current state, so the app starts with a full picture.
-    state.refresh(true);
+    state.refresh(true, ModifierSync::Event);
     state.check_layout(true);
+    state.check_displays();
     state.send(ContextEvent::Password {
         active: state.gate.active(),
     });

@@ -180,6 +180,12 @@ fn overlay_guard_keeps_the_overlay_styles() {
 
         window_style::reassert_topmost(hwnd).expect("topmost");
         assert_ne!(ex_style(hwnd) & WS_EX_TOPMOST.0, 0);
+        // The watcher's variant targets the guarded window from any thread.
+        assert!(window_style::reassert_overlay_topmost_async());
+        let from_other_thread = thread::spawn(window_style::reassert_overlay_topmost_async)
+            .join()
+            .expect("thread");
+        assert!(from_other_thread);
         assert!(window_style::window_scale(hwnd).is_some_and(|s| s > 0.0));
 
         if !running_under_wine() {
@@ -190,9 +196,10 @@ fn overlay_guard_keeps_the_overlay_styles() {
             );
         }
 
-        // WM_NCDESTROY takes the subclass out again.
+        // WM_NCDESTROY takes the subclass out again and forgets the window.
         DestroyWindow(hwnd).expect("destroy");
     }
+    assert!(!window_style::reassert_overlay_topmost_async());
     assert!(matches!(
         window_style::install_overlay_guard(HWND(std::ptr::null_mut())),
         Err(PlatformError::InvalidInput(_))
@@ -284,6 +291,19 @@ fn input_hooks_life_cycle_with_an_injected_key() {
 
     // Resumed: hooks back, events flow again.
     handle.resume().expect("resume");
+    assert!(wait_for(|| handle.is_installed(), Duration::from_secs(2)));
+    send_key(vk::F24, false);
+    send_key(vk::F24, true);
+    assert_eq!(collect_f24(&mut rx, 2, Duration::from_secs(3)).len(), 2);
+
+    // A stall long enough for Windows to drop a hook: the hook thread notices
+    // it on its own timer and reinstalls both hooks.
+    let before = handle.reinstalls();
+    handle.stall_hook_thread_for_test(400).expect("stall");
+    assert!(
+        wait_for(|| handle.reinstalls() > before, Duration::from_secs(3)),
+        "reinstalled after the stall"
+    );
     assert!(wait_for(|| handle.is_installed(), Duration::from_secs(2)));
     send_key(vk::F24, false);
     send_key(vk::F24, true);

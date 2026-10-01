@@ -3,8 +3,9 @@
 //! Threads it creates:
 //!
 //! * `keystage-hooks`: installs `WH_KEYBOARD_LL` and `WH_MOUSE_LL` and pumps
-//!   their messages ([`hooks`]). Owns no windows, makes no COM, UI
-//!   Automation, process or file calls.
+//!   their messages ([`hooks`]) at `THREAD_PRIORITY_TIME_CRITICAL`, and
+//!   reinstalls both hooks after it was stalled long enough to lose one.
+//!   Owns no windows, makes no COM, UI Automation, process or file calls.
 //! * `keystage-hook-watchdog`: reinstalls hooks Windows removed silently.
 //! * `keystage-watcher`: a message-only window with WinEvent hooks for
 //!   foreground and focus changes, session notifications and a poll timer
@@ -70,7 +71,12 @@ pub fn read_modifiers() -> Option<ModifierSnapshot> {
     if !desktop_readable() {
         return None;
     }
-    Some(process::modifier_snapshot(now_ms()))
+    let now = now_ms();
+    let mut snapshot = process::modifier_snapshot(now);
+    // A key the hook reported a moment ago may not be in the asynchronous
+    // state yet; the hook stream decides for those keys.
+    snapshot.held = hooks::reconcile_held(std::mem::take(&mut snapshot.held), now);
+    Some(snapshot)
 }
 
 pub fn foreground_process() -> ForegroundInfo {

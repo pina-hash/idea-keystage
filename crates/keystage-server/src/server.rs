@@ -28,6 +28,9 @@ use crate::ws;
 pub const DEFAULT_MAX_CLIENTS: usize = 64;
 /// How long a graceful shutdown waits for open requests.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
+/// How long a shutdown then waits for the WebSockets to send their close
+/// frames (each send gives up after 500 ms).
+const SOCKET_CLOSE_GRACE: Duration = Duration::from_secs(1);
 
 /// Server settings. The server always binds `127.0.0.1`; there is no
 /// option to listen anywhere else.
@@ -131,6 +134,7 @@ impl Server {
             hub,
             stop: stop_rx.clone(),
             max_clients: config.max_clients.max(1),
+            sockets: OpenSockets::new(),
         };
         let thread = thread::Builder::new()
             .name("keystage-server".into())
@@ -244,6 +248,39 @@ pub(crate) struct AppState {
     pub(crate) hub: Hub,
     pub(crate) stop: watch::Receiver<bool>,
     pub(crate) max_clients: usize,
+    pub(crate) sockets: OpenSockets,
+}
+
+/// This server's open WebSocket connections. An upgraded connection is no
+/// longer tracked by the HTTP server's graceful shutdown, and tearing the
+/// runtime down drops its task wherever it is, so a shutdown waits on this
+/// for every socket to send its close frame first.
+#[derive(Clone)]
+pub(crate) struct OpenSockets(Arc<watch::Sender<usize>>);
+
+/// One open WebSocket; dropping it marks the socket closed.
+pub(crate) struct OpenSocket(Arc<watch::Sender<usize>>);
+
+impl OpenSockets {
+    fn new() -> Self {
+        OpenSockets(Arc::new(watch::Sender::new(0)))
+    }
+
+    pub(crate) fn open(&self) -> OpenSocket {
+        self.0.send_modify(|n| *n += 1);
+        OpenSocket(self.0.clone())
+    }
+
+    async fn all_closed(&self) {
+        let mut open = self.0.subscribe();
+        let _ = open.wait_for(|n| *n == 0).await;
+    }
+}
+
+impl Drop for OpenSocket {
+    fn drop(&mut self) {
+        self.0.send_modify(|n| *n = n.saturating_sub(1));
+    }
 }
 
 async fn serve(
@@ -251,6 +288,7 @@ async fn serve(
     state: AppState,
     mut stop: watch::Receiver<bool>,
 ) {
+    let sockets = state.sockets.clone();
     let app = router(state);
     let listener = listener.tap_io(|tcp| {
         // Small frames must leave at once (Nagle plus delayed ACK can hold
@@ -274,6 +312,14 @@ async fn serve(
         } => {
             tracing::warn!("local server shutdown timed out; closing open connections");
         }
+    }
+    // The stop signal also woke every WebSocket task; let each one send its
+    // close frame (1001) before the runtime is torn down.
+    if tokio::time::timeout(SOCKET_CLOSE_GRACE, sockets.all_closed())
+        .await
+        .is_err()
+    {
+        tracing::warn!("local server shutdown timed out waiting for WebSockets to close");
     }
 }
 
@@ -485,10 +531,15 @@ async fn websocket(
     let guard = state.hub.register();
     let hub = state.hub.clone();
     let stop = state.stop.clone();
+    // Counted from here, so a shutdown also waits for an upgrade in flight.
+    let open = state.sockets.open();
     upgrade
         .max_message_size(ws::MAX_CLIENT_MESSAGE)
         .max_frame_size(ws::MAX_CLIENT_MESSAGE)
-        .on_upgrade(move |socket| ws::run(socket, hub, guard, stop))
+        .on_upgrade(move |socket| async move {
+            ws::run(socket, hub, guard, stop).await;
+            drop(open);
+        })
 }
 
 #[cfg(test)]

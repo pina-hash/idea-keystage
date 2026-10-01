@@ -248,11 +248,15 @@ fn caption_line(c: &Callout) -> String {
 /// SubRip captions: one line per callout. Cues are in time order and never
 /// overlap; each lasts at least `min_cue_ms` (unless the video ends first).
 /// Callouts that start within `min_cue_ms` of a cue's start join it as
-/// extra lines. Masked typing is left out (it carries no information).
+/// extra lines. Masked typing is left out (it carries no information), and so
+/// is a callout with nothing to show (a text run emptied with Backspace): a
+/// blank line ends a SubRip cue, so it must never be a caption line.
 /// Lines end with CRLF; UTF-8 without a byte order mark.
 pub fn srt(session: &Session, opts: &ExportOptions) -> Export {
     let (clock, mut warnings) = clock_for(session, opts);
-    let items = placed(session, &clock, |c| c.kind != CalloutKind::Masked);
+    let items = placed(session, &clock, |c| {
+        c.kind != CalloutKind::Masked && !caption_line(c).is_empty()
+    });
     let video_end = clock.video_length_ms();
     let min_cue = opts.min_cue_ms.max(1);
     let max_lines = opts.max_cue_lines.max(1);
@@ -310,9 +314,12 @@ pub fn srt(session: &Session, opts: &ExportOptions) -> Export {
 /// True for callouts that belong in the shortcuts list: key combos and
 /// chords, plus single keys and mouse actions that have a caption. Typed
 /// text, masked typing and bare uncaptioned keys (Enter, arrows) are not
-/// shortcuts.
+/// shortcuts, and neither is a callout with no keys to list.
 fn is_shortcut(c: &Callout) -> bool {
     let captioned = nonempty(c.caption.as_deref()).is_some();
+    if keys_text(c).is_empty() {
+        return false;
+    }
     match c.kind {
         CalloutKind::Combo | CalloutKind::Chord => {
             captioned
@@ -418,15 +425,31 @@ pub fn json(session: &Session) -> Export {
 /// `H:MM:SS Name` from an hour on. Names are the markers' current names, so
 /// renames are honored. Warns when YouTube's rules (at least three chapters,
 /// each at least 10 seconds) are not met.
+///
+/// Only the selected take's markers count. A marker within its first second,
+/// or added before it started but after the previous take ended (its lead-in),
+/// names the 00:00 chapter; when several do, the latest wins and each name it
+/// replaces is reported. Markers from an earlier take are left out (the
+/// export already warns that it follows one of several recordings), and so
+/// are markers after the take stopped, with a warning.
 pub fn chapters(session: &Session, opts: &ExportOptions) -> Export {
     let (clock, mut warnings) = clock_for(session, opts);
     let mut list: Vec<(u64, String)> = vec![(0, FIRST_CHAPTER_NAME.to_string())];
+    // True once a marker (not the default) names the 00:00 chapter.
+    let mut first_named = false;
+    let earlier_take_end = clock.previous_take_end();
     let mut after = 0usize;
     for m in &session.markers {
         let mapped = clock.map(m.t_ms);
-        if mapped.position == Position::After {
-            after += 1;
-            continue;
+        match mapped.position {
+            Position::After => {
+                after += 1;
+                continue;
+            }
+            // Before the take and before the previous take ended: it belongs
+            // to an earlier recording.
+            Position::Before if earlier_take_end.is_some_and(|end| m.t_ms < end) => continue,
+            _ => {}
         }
         let name = one_line(&m.name);
         let name = if name.is_empty() {
@@ -435,8 +458,17 @@ pub fn chapters(session: &Session, opts: &ExportOptions) -> Export {
             name
         };
         if mapped.rec_ms < START_MARKER_MS {
-            // A marker at the very start names the first chapter.
-            list[0].1 = name;
+            // A marker in the lead-in or at the very start names the first
+            // chapter. Markers are in time order, so the latest wins.
+            let dropped = std::mem::replace(&mut list[0].1, name);
+            if first_named {
+                warnings.push(ExportWarning::SameSecond {
+                    time: "00:00".to_string(),
+                    kept: list[0].1.clone(),
+                    dropped,
+                });
+            }
+            first_named = true;
             continue;
         }
         list.push((mapped.rec_ms, name));
@@ -591,6 +623,80 @@ mod tests {
         assert_eq!(out.warnings, vec![ExportWarning::SessionClock]);
     }
 
+    /// A text run as the core leaves it: `text` plus one step that is empty
+    /// or holds the closing key.
+    fn text_run(id: u64, t: u64, upd: u64, text: &str) -> Callout {
+        Callout {
+            id,
+            kind: CalloutKind::Text,
+            steps: vec![vec![]],
+            text: Some(text.to_string()),
+            count: 1,
+            caption: None,
+            context: None,
+            profile: Some("solidworks".into()),
+            t_ms: t,
+            updated_ms: upd,
+        }
+    }
+
+    #[test]
+    fn srt_leaves_out_a_text_run_emptied_by_backspace() {
+        // `5`, Backspace, then Ctrl+S within a second: the emptied run must
+        // not put a blank line (the end of a cue) into the Ctrl+S cue.
+        let mut log = SessionLog::start("s", 0, 0);
+        log.add_callout(&text_run(1, 20, 200, ""));
+        log.add_callout(&combo(2, 500, 500, "S", Some("Fixture save"), 1));
+        log.stop(10_000, 10_000);
+        let out = srt(log.session(), &ExportOptions::default());
+        assert_eq!(
+            out.text,
+            "1\r\n00:00:00,500 --> 00:00:02,700\r\nCtrl + S  Fixture save\r\n\r\n"
+        );
+        assert_eq!(out.warnings, vec![ExportWarning::SessionClock]);
+        for cue in out.text.split("\r\n\r\n").filter(|c| !c.is_empty()) {
+            assert!(
+                cue.split("\r\n").count() >= 3,
+                "a cue without text: {cue:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn srt_has_no_cue_for_a_lone_empty_text_run() {
+        let mut log = SessionLog::start("s", 0, 0);
+        log.add_callout(&text_run(1, 1_000, 1_200, ""));
+        // Whitespace only reads as nothing once the line is cleaned.
+        log.add_callout(&text_run(2, 4_000, 4_100, " \t"));
+        log.stop(10_000, 10_000);
+        let out = srt(log.session(), &ExportOptions::default());
+        assert_eq!(out.text, "");
+        assert!(out.warnings.contains(&ExportWarning::Empty));
+        // A run that still holds text is a caption line as before.
+        let mut log = SessionLog::start("s", 0, 0);
+        log.add_callout(&text_run(1, 1_000, 1_200, "25.4"));
+        log.stop(10_000, 10_000);
+        let out = srt(log.session(), &ExportOptions::default());
+        assert_eq!(
+            out.text,
+            "1\r\n00:00:01,000 --> 00:00:03,400\r\n25.4\r\n\r\n"
+        );
+    }
+
+    #[test]
+    fn markdown_skips_a_captioned_callout_with_no_keys() {
+        // Only a hand-edited session file can hold this; it must not become
+        // a line with an empty key column.
+        let mut c = combo(1, 1_000, 1_000, "B", Some("Fixture"), 1);
+        c.steps = vec![vec![]];
+        assert!(!is_shortcut(&c));
+        let mut log = SessionLog::start("s", 0, 0);
+        log.add_callout(&c);
+        log.stop(10_000, 10_000);
+        let m = markdown(log.session(), &ExportOptions::default());
+        assert!(m.warnings.contains(&ExportWarning::Empty));
+    }
+
     #[test]
     fn srt_cue_ends_at_video_end() {
         let mut log = SessionLog::start("s", 0, 0);
@@ -680,6 +786,95 @@ mod tests {
         assert!(out
             .warnings
             .contains(&ExportWarning::MarkersAfterVideo { count: 1 }));
+    }
+
+    /// Two takes, 1 to 60 s and 100 to 200 s, with two markers in each.
+    fn two_takes() -> SessionLog {
+        let mut log = SessionLog::start("s", 0, 0);
+        log.record_event(1_000, RecordEvent::Started);
+        log.add_marker(5_000, Some("Take one intro")).unwrap();
+        log.add_marker(30_000, Some("Take one part")).unwrap();
+        log.record_event(60_000, RecordEvent::Stopped);
+        log.record_event(100_000, RecordEvent::Started);
+        log.add_marker(130_000, Some("Take two part A")).unwrap();
+        log.add_marker(160_000, Some("Take two part B")).unwrap();
+        log.record_event(200_000, RecordEvent::Stopped);
+        log
+    }
+
+    #[test]
+    fn chapters_leave_out_markers_from_an_earlier_take() {
+        let mut log = two_takes();
+        log.stop(210_000, 210_000);
+        let out = chapters(log.session(), &ExportOptions::default());
+        assert_eq!(
+            out.text,
+            "00:00 Start\n00:30 Take two part A\n01:00 Take two part B\n"
+        );
+        assert_eq!(
+            out.warnings,
+            vec![ExportWarning::SeveralTakes { takes: 2, used: 2 }]
+        );
+        // The first take: the second take's markers come after it.
+        let first = ExportOptions {
+            take: Some(0),
+            ..ExportOptions::default()
+        };
+        let out = chapters(log.session(), &first);
+        assert_eq!(
+            out.text,
+            "00:00 Start\n00:04 Take one intro\n00:29 Take one part\n"
+        );
+        assert!(out
+            .warnings
+            .contains(&ExportWarning::MarkersAfterVideo { count: 2 }));
+    }
+
+    #[test]
+    fn chapters_take_the_lead_in_marker_of_the_selected_take() {
+        // A marker between the takes leads into the second one.
+        let mut log = two_takes();
+        log.add_marker(95_000, Some("Take two intro")).unwrap();
+        log.stop(210_000, 210_000);
+        let out = chapters(log.session(), &ExportOptions::default());
+        assert_eq!(
+            out.text,
+            "00:00 Take two intro\n00:30 Take two part A\n01:00 Take two part B\n"
+        );
+        assert_eq!(
+            out.warnings,
+            vec![ExportWarning::SeveralTakes { takes: 2, used: 2 }]
+        );
+    }
+
+    #[test]
+    fn chapters_report_every_name_the_first_chapter_replaces() {
+        let mut log = SessionLog::start("s", 0, 0);
+        log.add_marker(2_000, Some("Old idea")).unwrap();
+        log.add_marker(8_000, Some("Intro")).unwrap();
+        log.record_event(10_000, RecordEvent::Started);
+        log.add_marker(10_400, Some("Welcome")).unwrap();
+        log.add_marker(30_000, Some("Sketch")).unwrap();
+        log.add_marker(50_000, Some("Extrude")).unwrap();
+        log.record_event(70_000, RecordEvent::Stopped);
+        log.stop(80_000, 80_000);
+        let out = chapters(log.session(), &ExportOptions::default());
+        assert_eq!(out.text, "00:00 Welcome\n00:20 Sketch\n00:40 Extrude\n");
+        assert_eq!(
+            out.warnings,
+            vec![
+                ExportWarning::SameSecond {
+                    time: "00:00".into(),
+                    kept: "Intro".into(),
+                    dropped: "Old idea".into(),
+                },
+                ExportWarning::SameSecond {
+                    time: "00:00".into(),
+                    kept: "Welcome".into(),
+                    dropped: "Intro".into(),
+                },
+            ]
+        );
     }
 
     #[test]

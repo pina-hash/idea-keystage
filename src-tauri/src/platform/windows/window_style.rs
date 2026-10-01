@@ -11,17 +11,26 @@
 //!
 //! **Main thread only**: "You cannot use the subclassing helper functions
 //! to subclass a window across threads" (SetWindowSubclass, read
-//! 2026-10-01). Every function here checks or documents that.
+//! 2026-10-01). Every public function here checks or documents that. The
+//! one exception is [`reassert_overlay_topmost_async`], which the watcher
+//! thread calls on every foreground window change: it uses
+//! `SWP_ASYNCWINDOWPOS` ("If the calling thread and the thread that owns the
+//! window are attached to different input queues, the system posts the
+//! request to the thread that owns the window. This prevents the calling
+//! thread from blocking its execution while other threads process the
+//! request", SetWindowPos), so it never waits for the main thread.
+
+use std::sync::atomic::{AtomicIsize, Ordering};
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::System::Threading::GetCurrentThreadId;
+use windows::Win32::System::Threading::{GetCurrentProcessId, GetCurrentThreadId};
 use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongPtrW, GetWindowThreadProcessId, SetWindowDisplayAffinity, SetWindowLongPtrW,
-    SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST, STYLESTRUCT, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-    SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WDA_EXCLUDEFROMCAPTURE, WDA_NONE, WM_NCDESTROY,
-    WM_STYLECHANGING,
+    SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST, SET_WINDOW_POS_FLAGS, STYLESTRUCT, SWP_ASYNCWINDOWPOS,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WDA_EXCLUDEFROMCAPTURE,
+    WDA_NONE, WM_NCDESTROY, WM_STYLECHANGING,
 };
 
 use super::super::display::{
@@ -41,6 +50,15 @@ const _: () = {
 
 /// Our subclass id ("KSOV").
 const SUBCLASS_ID: usize = 0x4B53_4F56;
+
+/// The window the guard was last installed on (the overlay), 0 when none.
+/// Cleared when that window is destroyed.
+static OVERLAY: AtomicIsize = AtomicIsize::new(0);
+
+/// `SetWindowPos` flags that put a window at the top of the topmost group
+/// without activating, moving or sizing it.
+const TOPMOST_FLAGS: SET_WINDOW_POS_FLAGS =
+    SET_WINDOW_POS_FLAGS(SWP_NOACTIVATE.0 | SWP_NOMOVE.0 | SWP_NOSIZE.0);
 
 fn on_owner_thread(hwnd: HWND) -> bool {
     // SAFETY: plain calls.
@@ -63,7 +81,9 @@ unsafe extern "system" fn guard_proc(
             unsafe { (*ss).styleNew = force_overlay_ex_style((*ss).styleNew) };
         }
     } else if msg == WM_NCDESTROY {
-        // The window is going away: take our subclass out of its chain.
+        // The window is going away: forget it (unless a newer overlay took
+        // its place) and take our subclass out of its chain.
+        let _ = OVERLAY.compare_exchange(hwnd.0 as isize, 0, Ordering::AcqRel, Ordering::Acquire);
         // SAFETY: removing our own subclass on the window's thread.
         let _ = unsafe { RemoveWindowSubclass(hwnd, Some(guard_proc), id) };
     }
@@ -94,6 +114,7 @@ pub fn install_overlay_guard(hwnd: HWND) -> Result<(), PlatformError> {
     if !unsafe { SetWindowSubclass(hwnd, Some(guard_proc), SUBCLASS_ID, 0) }.as_bool() {
         return Err(PlatformError::last_os_error("SetWindowSubclass"));
     }
+    OVERLAY.store(hwnd.0 as isize, Ordering::Release);
     // SAFETY: plain reads and writes of this thread's window.
     unsafe {
         let current = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
@@ -125,7 +146,31 @@ pub fn reassert_topmost(hwnd: HWND) -> Result<(), PlatformError> {
         ));
     }
     // SAFETY: plain call on our own window.
+    unsafe { SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, TOPMOST_FLAGS) }
+        .map_err(|e| PlatformError::os("SetWindowPos(HWND_TOPMOST)", &e))
+}
+
+/// Puts the guarded overlay back on top of the topmost group, from any
+/// thread, without waiting: the request is posted to the window's thread
+/// (`SWP_ASYNCWINDOWPOS`). The watcher calls it on every foreground window
+/// change (ARCHITECTURE.md section 6), including changes between two
+/// windows of one process, which `ContextEvent::Foreground` does not
+/// report. Does nothing while no overlay is guarded. Returns whether a
+/// request was made.
+pub(crate) fn reassert_overlay_topmost_async() -> bool {
+    let raw = OVERLAY.load(Ordering::Acquire);
+    if raw == 0 {
+        return false;
+    }
+    let hwnd = HWND(raw as *mut std::ffi::c_void);
+    let mut pid = 0u32;
+    // SAFETY: plain calls; a handle that is no longer a window fails them.
     unsafe {
+        // Only a live window of this process: never touch a window that
+        // reused the value after ours was destroyed.
+        if GetWindowThreadProcessId(hwnd, Some(&mut pid)) == 0 || pid != GetCurrentProcessId() {
+            return false;
+        }
         SetWindowPos(
             hwnd,
             Some(HWND_TOPMOST),
@@ -133,10 +178,10 @@ pub fn reassert_topmost(hwnd: HWND) -> Result<(), PlatformError> {
             0,
             0,
             0,
-            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+            TOPMOST_FLAGS | SWP_ASYNCWINDOWPOS,
         )
+        .is_ok()
     }
-    .map_err(|e| PlatformError::os("SetWindowPos(HWND_TOPMOST)", &e))
 }
 
 /// Excludes the window from capture on build 19041 and later; elsewhere,

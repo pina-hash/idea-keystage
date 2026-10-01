@@ -116,8 +116,12 @@ pub fn legends_snapshot() -> Arc<LegendTable> {
 /// The modifiers held right now (`GetAsyncKeyState`), or `None` when the
 /// answer cannot be trusted: the foreground is elevated or unknown, or the
 /// session is locked (a zero from `GetAsyncKeyState` can mean "the call
-/// failed"). Call it when `Processor::needs_resync(now)` is true and after
-/// resuming, and forward `to_input_event()`.
+/// failed"). A modifier key whose event the input receiver handed out in the
+/// last 100 ms keeps the state that event gave it, because the asynchronous
+/// state is updated only after the hook returns. Call it when
+/// `Processor::needs_resync(now)` is true, after draining the receiver, and
+/// forward `to_input_event()`. (Resume and foreground changes need no call:
+/// the receiver adds a `ModifierResync` itself.)
 ///
 /// Threading: any thread except a hook procedure.
 pub fn read_modifiers() -> Option<ModifierSnapshot> {
@@ -149,7 +153,11 @@ pub fn install_overlay_guard<R: tauri::Runtime>(
 
 /// Puts the overlay back on top of other topmost windows without activating
 /// it (`SetWindowPos(HWND_TOPMOST, SWP_NOACTIVATE | SWP_NOMOVE |
-/// SWP_NOSIZE)`). Call it on foreground changes.
+/// SWP_NOSIZE)`). The watcher already does this for the window passed to
+/// [`install_overlay_guard`] on every foreground window change (posted to
+/// the window's thread, so it never waits), including changes between two
+/// windows of one process; calling it on `ContextEvent::Foreground` as well
+/// is harmless.
 ///
 /// Threading: main thread (from another thread `SetWindowPos` would wait
 /// for the main thread to process the call). A no-op off Windows.

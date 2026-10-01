@@ -296,6 +296,27 @@ fn rec_state(s: &ObsStatus) -> Option<RecordState> {
     s.recording.as_ref().map(|r| r.state)
 }
 
+/// Waits until the mock has read at least `n` requests of `kind`. The client
+/// can send a request before the status a test waits on changes, while the
+/// mock reads one frame at a time (it answers `GetVersion` before it reads the
+/// `GetRecordStatus` sent right after it), so a request the client already
+/// sent may not be recorded yet when that status arrives.
+async fn wait_requests(mock: &Mock, kind: &str, n: usize) -> Vec<Value> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let reqs = mock.requests_of(kind);
+        if reqs.len() >= n {
+            return reqs;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for {n} {kind} request(s); the mock read {}",
+            reqs.len()
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
 /// Lets the client run with a mock that should not hear from it again.
 async fn quiet(ms: u64) {
     tokio::time::sleep(Duration::from_millis(ms)).await;
@@ -326,7 +347,7 @@ async fn authenticates_and_identifies_with_rpc_1_and_subscriptions_65() {
     );
     // GetVersion and GetRecordStatus right after Identified.
     assert_eq!(mock.requests_of("GetVersion").len(), 1);
-    assert!(!mock.requests_of("GetRecordStatus").is_empty());
+    wait_requests(&mock, "GetRecordStatus", 1).await;
     let first = tokio::time::timeout(Duration::from_secs(2), events.recv())
         .await
         .unwrap()
@@ -589,7 +610,9 @@ async fn no_polling_while_stopped() {
     let mock = Mock::start(None).await;
     let client = ObsClient::spawn_with(mock.config(None), fast()).unwrap();
     wait_status(&client, "connected", connected).await;
-    let n = mock.requests_of("GetRecordStatus").len();
+    // The seed request goes out right after Identified; count from it, or
+    // its late arrival at the mock would look like a poll.
+    let n = wait_requests(&mock, "GetRecordStatus", 1).await.len();
     quiet(300).await;
     assert_eq!(mock.requests_of("GetRecordStatus").len(), n);
 }

@@ -37,6 +37,28 @@ use super::super::PlatformError;
 
 /// Lists the monitors, primary first, with distinct names.
 pub fn list() -> Result<Vec<Monitor>, PlatformError> {
+    let mut found = enumerate()?;
+    let names = friendly_names();
+    for m in &mut found {
+        if let Some(name) = names.get(&m.id) {
+            m.name = name.clone();
+        }
+    }
+    label_monitors(&mut found);
+    Ok(found)
+}
+
+/// The monitors' device names, rectangles, scales and primary flag, without
+/// names (no display configuration query), in [`list`]'s order. Cheap
+/// enough for the watcher's 500 ms poll; a resolution, arrangement, scaling
+/// or primary-monitor change alters it. `None` when enumeration fails.
+pub(crate) fn layout_signature() -> Option<Vec<Monitor>> {
+    enumerate().ok()
+}
+
+/// `EnumDisplayMonitors` plus `GetMonitorInfoW` and `GetDpiForMonitor`,
+/// sorted, without empty or duplicate entries, names left empty.
+fn enumerate() -> Result<Vec<Monitor>, PlatformError> {
     let mut found: Vec<Monitor> = Vec::new();
     // SAFETY: the callback runs synchronously on this thread and only uses
     // `found` through the pointer passed in `dwdata`.
@@ -51,17 +73,10 @@ pub fn list() -> Result<Vec<Monitor>, PlatformError> {
     if !ok.as_bool() {
         return Err(PlatformError::last_os_error("EnumDisplayMonitors"));
     }
-    let names = friendly_names();
-    for m in &mut found {
-        if let Some(name) = names.get(&m.id) {
-            m.name = name.clone();
-        }
-    }
     // Mirroring pseudo-monitors and duplicates add nothing.
     found.retain(|m| m.width > 0 && m.height > 0);
     sort_monitors(&mut found);
     found.dedup_by(|a, b| a.id == b.id);
-    label_monitors(&mut found);
     Ok(found)
 }
 

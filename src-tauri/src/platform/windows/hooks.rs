@@ -11,6 +11,14 @@
 //!   copy a [`RawEvent`] into the preallocated lock-free queue, unpark the
 //!   consumer and call `CallNextHookEx`: no allocation, logging, locks or
 //!   channel sends, and nothing that can panic across the FFI boundary.
+//! * Windows removes only the hook whose call timed out, and a call times
+//!   out when the hook thread does not run for that long (a SolidWorks
+//!   rebuild and an OBS encode can saturate every core). So the hook thread
+//!   runs at `THREAD_PRIORITY_TIME_CRITICAL`, and its own 50 ms liveness
+//!   timer measures how long it went without running: after a stall of
+//!   150 ms or more (`convert::STALL_THRESHOLD_MS`) it reinstalls both
+//!   hooks at once. That also covers a lost keyboard hook while the mouse
+//!   hook still delivers, which no `GetLastInputInfo` comparison can see.
 //! * A watchdog thread compares `GetLastInputInfo` with the last record a
 //!   hook delivered and asks the hook thread to reinstall when Windows saw
 //!   input the hooks missed.
@@ -24,25 +32,30 @@
 //!   the callback function").
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, OnceLock};
 use std::thread::{self, JoinHandle, Thread};
 use std::time::{Duration, Instant};
 
+use keystage_core::{Mod, Side};
 use parking_lot::Mutex;
 use windows::Win32::Foundation::{HINSTANCE, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::System::Threading::GetCurrentThreadId;
+use windows::Win32::System::Threading::{
+    GetCurrentThread, GetCurrentThreadId, SetThreadPriority, THREAD_PRIORITY_TIME_CRITICAL,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, DispatchMessageW, GetMessageW, PeekMessageW, PostQuitMessage,
-    PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx, HC_ACTION, HHOOK,
-    KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP,
-    WM_USER,
+    CallNextHookEx, DispatchMessageW, GetMessageW, KillTimer, PeekMessageW, PostQuitMessage,
+    PostThreadMessageW, SetCoalescableTimer, SetTimer, SetWindowsHookExW, TranslateMessage,
+    UnhookWindowsHookEx, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE,
+    TIMERV_NO_COALESCING, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_APP, WM_TIMER, WM_USER,
 };
 
-use super::super::convert::{self, RawEvent, WATCHDOG_THRESHOLD_MS};
+use super::super::convert::{
+    self, RawEvent, StallProbe, STALL_PROBE_MS, STALL_THRESHOLD_MS, WATCHDOG_THRESHOLD_MS,
+};
 use super::super::input::{InputReceiver, InputShared};
 use super::super::PlatformError;
 use super::{layout, os, process};
@@ -87,6 +100,10 @@ const MSG_PAUSE: u32 = WM_APP + 1;
 const MSG_RESUME: u32 = WM_APP + 2;
 const MSG_REINSTALL: u32 = WM_APP + 3;
 const MSG_STOP: u32 = WM_APP + 4;
+/// Tests only: block the hook thread for `wParam` ms, as a starved thread
+/// would be.
+#[cfg(test)]
+const MSG_TEST_STALL: u32 = WM_APP + 5;
 
 /// How long `start_input` waits for the hooks.
 const START_TIMEOUT: Duration = Duration::from_secs(5);
@@ -105,6 +122,9 @@ static SHARED: OnceLock<Arc<InputShared>> = OnceLock::new();
 static CONSUMER: OnceLock<Thread> = OnceLock::new();
 /// One input hook at a time.
 static RUNNING: AtomicBool = AtomicBool::new(false);
+/// Reinstalls the hook thread made after a stall. The watchdog thread logs
+/// them: the hook thread itself never waits on a log writer.
+static STALL_REINSTALLS: AtomicU64 = AtomicU64::new(0);
 
 // ---------------------------------------------------------------------------
 // Hook procedures: copy, wake, chain. Nothing else.
@@ -186,6 +206,31 @@ fn wake() {
     }
 }
 
+/// Asks the input receiver for a modifier resync and wakes the consumer.
+/// The receiver reads `GetAsyncKeyState` inside `drain_into`, after every
+/// hook record queued so far, so the snapshot is ordered with the hook
+/// stream (a snapshot sent on another channel could be applied after a
+/// later key-up and re-press the key). No-op before input starts.
+///
+/// Threading: any thread except a hook procedure.
+pub(crate) fn request_resync() {
+    if let Some(shared) = SHARED.get() {
+        shared.request_resync();
+        wake();
+    }
+}
+
+/// `held`, a `GetAsyncKeyState` read made at `now`, corrected by the hook
+/// stream ([`InputShared::reconcile_held`]). Unchanged before input starts.
+///
+/// Threading: any thread except a hook procedure.
+pub(crate) fn reconcile_held(held: Vec<(Mod, Side)>, now: u64) -> Vec<(Mod, Side)> {
+    match SHARED.get() {
+        Some(shared) => shared.reconcile_held(&held, now),
+        None => held,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The hook thread
 // ---------------------------------------------------------------------------
@@ -233,6 +278,13 @@ impl Hooks {
         Ok(())
     }
 
+    /// Removes both hooks and installs them again: Windows may have removed
+    /// either one without saying so.
+    fn reinstall(&mut self, shared: &InputShared) -> Result<(), PlatformError> {
+        self.remove(shared);
+        self.install(shared)
+    }
+
     fn remove(&mut self, shared: &InputShared) {
         shared.installed.store(false, Ordering::Release);
         for h in [self.keyboard.take(), self.mouse.take()]
@@ -248,7 +300,30 @@ impl Hooks {
     }
 }
 
+/// Starts this thread's liveness timer (a thread timer: `WM_TIMER` arrives
+/// with a NULL `hwnd`). Coalescing is off so a healthy gap stays close to
+/// the period. Returns the timer id, 0 when no timer could be set.
+fn start_probe_timer() -> usize {
+    // SAFETY: a thread timer without a callback, on this thread's queue.
+    unsafe {
+        let id = SetCoalescableTimer(None, 0, STALL_PROBE_MS, None, TIMERV_NO_COALESCING);
+        if id != 0 {
+            id
+        } else {
+            SetTimer(None, 0, STALL_PROBE_MS, None)
+        }
+    }
+}
+
 fn hook_thread(shared: Arc<InputShared>, ready: SyncSender<Result<u32, PlatformError>>) {
+    // A hook call that waits longer than LowLevelHooksTimeout for this
+    // thread loses that hook. The thread does microseconds of work per event
+    // and sleeps otherwise, so keep it ahead of the normal-priority threads
+    // that saturate the CPU during a rebuild while OBS encodes.
+    // SAFETY: the pseudo handle of the calling thread.
+    if unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL) }.is_err() {
+        tracing::warn!("the input hook thread could not raise its priority");
+    }
     let mut msg = MSG::default();
     // Create this thread's message queue before anyone posts to it
     // (PostThreadMessageW's documented handshake).
@@ -264,13 +339,20 @@ fn hook_thread(shared: Arc<InputShared>, ready: SyncSender<Result<u32, PlatformE
         RUNNING.store(false, Ordering::Release);
         return;
     }
+    let probe_timer = start_probe_timer();
     if ready.send(Ok(tid)).is_err() {
         // `start_input` gave up waiting; do not leave hooks behind.
         hooks.remove(&shared);
+        stop_probe_timer(probe_timer);
         RUNNING.store(false, Ordering::Release);
         return;
     }
     tracing::info!("input hooks installed");
+    if probe_timer == 0 {
+        tracing::warn!("the input hook liveness timer could not be set");
+    }
+    let mut probe = StallProbe::new();
+    probe.tick(os::tick_count64(), STALL_THRESHOLD_MS);
 
     loop {
         // SAFETY: `msg` is a valid MSG; NULL hwnd also returns thread messages.
@@ -285,6 +367,20 @@ fn hook_thread(shared: Arc<InputShared>, ready: SyncSender<Result<u32, PlatformE
         }
         if msg.hwnd.0.is_null() {
             match msg.message {
+                WM_TIMER if probe_timer != 0 && msg.wParam.0 == probe_timer => {
+                    let stall = probe.tick(os::tick_count64(), STALL_THRESHOLD_MS);
+                    if stall.is_some() && !shared.paused.load(Ordering::Acquire) {
+                        // Any hook call made during the stall may have timed
+                        // out, and Windows does not say which hook it
+                        // removed.
+                        // Nothing is logged here (a log writer may block on
+                        // disk under exactly this load); the watchdog
+                        // reports it, and retries a failed install.
+                        shared.reinstalls.fetch_add(1, Ordering::Relaxed);
+                        STALL_REINSTALLS.fetch_add(1, Ordering::Relaxed);
+                        let _ = hooks.reinstall(&shared);
+                    }
+                }
                 MSG_PAUSE => {
                     hooks.remove(&shared);
                     shared.clear();
@@ -300,8 +396,7 @@ fn hook_thread(shared: Arc<InputShared>, ready: SyncSender<Result<u32, PlatformE
                 }
                 MSG_REINSTALL => {
                     if !shared.paused.load(Ordering::Acquire) {
-                        hooks.remove(&shared);
-                        if let Err(e) = hooks.install(&shared) {
+                        if let Err(e) = hooks.reinstall(&shared) {
                             tracing::error!("input hooks could not be reinstalled: {e}");
                         }
                     }
@@ -311,6 +406,8 @@ fn hook_thread(shared: Arc<InputShared>, ready: SyncSender<Result<u32, PlatformE
                     // SAFETY: no preconditions.
                     unsafe { PostQuitMessage(0) };
                 }
+                #[cfg(test)]
+                MSG_TEST_STALL => thread::sleep(Duration::from_millis(msg.wParam.0 as u64)),
                 _ => {}
             }
             continue;
@@ -324,8 +421,16 @@ fn hook_thread(shared: Arc<InputShared>, ready: SyncSender<Result<u32, PlatformE
         }
     }
     hooks.remove(&shared);
+    stop_probe_timer(probe_timer);
     tracing::info!("input hook thread stopped");
     RUNNING.store(false, Ordering::Release);
+}
+
+fn stop_probe_timer(id: usize) {
+    if id != 0 {
+        // SAFETY: a thread timer this thread set.
+        let _ = unsafe { KillTimer(None, id) };
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -335,10 +440,16 @@ fn hook_thread(shared: Arc<InputShared>, ready: SyncSender<Result<u32, PlatformE
 fn watchdog(shared: Arc<InputShared>, hook_tid: u32, stopping: Arc<AtomicBool>) {
     let mut last_request: Option<Instant> = None;
     let mut missing_since: Option<Instant> = None;
+    let mut stalls_seen = STALL_REINSTALLS.load(Ordering::Relaxed);
     loop {
         thread::park_timeout(WATCHDOG_PERIOD);
         if stopping.load(Ordering::Acquire) {
             break;
+        }
+        let stalls = STALL_REINSTALLS.load(Ordering::Relaxed);
+        if stalls != stalls_seen {
+            stalls_seen = stalls;
+            tracing::warn!("the input hook thread stalled; hooks reinstalled");
         }
         if shared.paused.load(Ordering::Acquire) || !super::desktop_readable() {
             missing_since = None;
@@ -394,8 +505,12 @@ struct Inner {
 
 impl Inner {
     fn post(&self, message: u32) -> Result<(), PlatformError> {
+        self.post_with(message, 0)
+    }
+
+    fn post_with(&self, message: u32, wparam: usize) -> Result<(), PlatformError> {
         // SAFETY: posting a private thread message to our hook thread.
-        unsafe { PostThreadMessageW(self.tid, message, WPARAM(0), LPARAM(0)) }
+        unsafe { PostThreadMessageW(self.tid, message, WPARAM(wparam), LPARAM(0)) }
             .map_err(|e| PlatformError::os("PostThreadMessageW", &e))
     }
 
@@ -444,8 +559,8 @@ impl InputHandle {
         self.inner.post(MSG_PAUSE)
     }
 
-    /// Reinstalls both hooks. The caller should then resync modifiers with
-    /// [`crate::platform::read_modifiers`].
+    /// Reinstalls both hooks. The receiver then adds a modifier resync on
+    /// its next drain by itself.
     pub fn resume(&self) -> Result<(), PlatformError> {
         self.inner.shared.paused.store(false, Ordering::Release);
         self.inner.post(MSG_RESUME)
@@ -465,9 +580,18 @@ impl InputHandle {
         self.inner.shared.dropped.load(Ordering::Relaxed)
     }
 
-    /// Times the watchdog asked for the hooks to be reinstalled.
+    /// Times the hooks were reinstalled because Windows may have removed
+    /// them: the `GetLastInputInfo` watchdog's requests plus the hook
+    /// thread's own stall reinstalls.
     pub fn reinstalls(&self) -> u64 {
         self.inner.shared.reinstalls.load(Ordering::Relaxed)
+    }
+
+    /// Tests only: blocks the hook thread for `ms`, as a starved thread
+    /// would be.
+    #[cfg(test)]
+    pub(crate) fn stall_hook_thread_for_test(&self, ms: u32) -> Result<(), PlatformError> {
+        self.inner.post_with(MSG_TEST_STALL, ms as usize)
     }
 
     /// Removes the hooks and ends the hook and watchdog threads. Blocks until

@@ -41,6 +41,12 @@ pub(crate) struct InputShared {
     /// reinstall): input may have been missed, so the receiver adds a
     /// `ModifierResync` on its next drain (ARCHITECTURE.md section 8, rule 2).
     pub(crate) resync_pending: AtomicBool,
+    /// The last event of each left/right modifier key as the receiver handed
+    /// it to the consumer, indexed like [`convert::MODIFIER_VKS`] and packed
+    /// with [`convert::pack_modifier_event`] (0: none). Written by the
+    /// receiver only; read by every resync so a `GetAsyncKeyState` answer
+    /// that lags the hook stream never overrides it.
+    recent_mods: [AtomicU64; 8],
 }
 
 impl InputShared {
@@ -53,6 +59,7 @@ impl InputShared {
             reinstalls: AtomicU64::new(0),
             last_hook_tick: AtomicU32::new(0),
             resync_pending: AtomicBool::new(false),
+            recent_mods: Default::default(),
         }
     }
 
@@ -62,9 +69,34 @@ impl InputShared {
         self.resync_pending.store(true, Ordering::Release);
     }
 
-    /// Empties the queue (used at start and when pausing).
+    /// Empties the queue (used at start and when pausing) and forgets the
+    /// recent modifier events, which no longer describe a continuous stream.
     pub(crate) fn clear(&self) {
         while self.queue.pop().is_some() {}
+        for slot in &self.recent_mods {
+            slot.store(0, Ordering::Relaxed);
+        }
+    }
+
+    /// Notes a modifier key event the receiver hands out.
+    fn note_modifier(&self, code: u16, down: bool, t_ms: u64) {
+        if let Some(slot) = convert::modifier_index(code).and_then(|i| self.recent_mods.get(i)) {
+            slot.store(convert::pack_modifier_event(down, t_ms), Ordering::Relaxed);
+        }
+    }
+
+    /// `async_held` (a `GetAsyncKeyState` read made at `now`) corrected by
+    /// the hook stream: a modifier key with an event in the last
+    /// [`convert::RESYNC_STREAM_TRUST_MS`] keeps the state that event gave
+    /// it. Use it for every resync, so a read that lags the hook never
+    /// re-presses a modifier that was just released.
+    pub(crate) fn reconcile_held(&self, async_held: &[(Mod, Side)], now: u64) -> Vec<(Mod, Side)> {
+        let recent: [Option<(bool, u64)>; 8] = std::array::from_fn(|i| {
+            self.recent_mods
+                .get(i)
+                .and_then(|slot| convert::unpack_modifier_event(slot.load(Ordering::Relaxed)))
+        });
+        convert::reconcile_held(async_held, &recent, now)
     }
 
     /// What a hook procedure does with a record: overwrite the oldest record
@@ -124,6 +156,9 @@ impl InputReceiver {
             }
             let t = self.rebaser.rebase(raw.time, now);
             if let Some(ev) = convert::to_input_event(&raw, t, &fill) {
+                if let InputEvent::Key(k) = &ev {
+                    self.shared.note_modifier(k.vk, k.down, k.t_ms);
+                }
                 out.push(ev);
                 added += 1;
             }
@@ -132,8 +167,12 @@ impl InputReceiver {
             && self.shared.resync_pending.swap(false, Ordering::AcqRel)
         {
             if let Some(held) = (self.read_held)() {
+                // Read after every queued record was taken, then corrected
+                // for keys the hook reported before their asynchronous state
+                // was updated.
+                let now = (self.now)();
                 out.push(InputEvent::ModifierResync {
-                    held,
+                    held: self.shared.reconcile_held(&held, now),
                     t_ms: self.rebaser.stamp_now(now),
                 });
                 added += 1;
@@ -297,6 +336,50 @@ mod tests {
         shared.request_resync();
         assert_eq!(rx.drain_into(&mut out), 0);
         assert!(!shared.resync_pending.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_resync_never_undoes_a_modifier_event_the_lagging_read_missed() {
+        use keystage_core::keys::vk;
+        let (shared, mut rx) = receiver();
+        // Left Ctrl was released; the record is taken, but GetAsyncKeyState
+        // (`held`) still reports it down, as it does before Windows updates
+        // the asynchronous state after the hook returns.
+        shared.record(RawEvent::key(
+            msg::WM_KEYUP,
+            u32::from(vk::LCONTROL),
+            0x1D,
+            flags::LLKHF_UP,
+            NOW as u32 - 2,
+        ));
+        shared.request_resync();
+        let mut out = Vec::new();
+        assert_eq!(rx.drain_into(&mut out), 2);
+        assert!(matches!(out[0], InputEvent::Key(k) if !k.down));
+        assert_eq!(
+            out[1],
+            InputEvent::ModifierResync {
+                held: vec![],
+                t_ms: NOW
+            },
+            "Ctrl stays released"
+        );
+        // The same correction serves resyncs read elsewhere.
+        assert_eq!(
+            shared.reconcile_held(&[(Mod::Ctrl, Side::Left), (Mod::Shift, Side::Right)], NOW),
+            vec![(Mod::Shift, Side::Right)]
+        );
+        // Long after the event, the system's answer stands again.
+        assert_eq!(
+            shared.reconcile_held(&[(Mod::Ctrl, Side::Left)], NOW + 1_000),
+            vec![(Mod::Ctrl, Side::Left)]
+        );
+        // Pausing (clear) forgets the stream's view.
+        shared.clear();
+        assert_eq!(
+            shared.reconcile_held(&[(Mod::Ctrl, Side::Left)], NOW),
+            vec![(Mod::Ctrl, Side::Left)]
+        );
     }
 
     #[test]

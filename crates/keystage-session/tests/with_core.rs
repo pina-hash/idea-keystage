@@ -189,3 +189,58 @@ fn exports_take_captions_from_the_data_file() {
     assert!(chapters.text.starts_with("00:00 Start\n"));
     assert!(chapters.text.contains(" Second half\n"));
 }
+
+#[test]
+fn srt_has_no_blank_line_for_a_text_run_emptied_by_backspace() {
+    // SolidWorks typed values: type `5`, delete it, then a shortcut from the
+    // data file within a second. The emptied run must not become a blank
+    // caption line, which would end the cue and orphan the shortcut's line.
+    let profile = builtin::solidworks().expect("the SolidWorks data file loads");
+    let entries = chosen_entries(&profile, 1);
+    let shortcut = entries.first().expect("a letter shortcut with no context");
+    let mut p = Processor::new(DisplayRules::default());
+    p.set_profile(Arc::new(profile.clone()));
+    let mut d = Driver {
+        p,
+        t: 10_000,
+        log: SessionLog::start("with-core-backspace", 1_790_863_200_000, 10_000),
+    };
+    let (vk5, sc5) = character_keys()["5"];
+    d.key(vk5, sc5, true);
+    d.key(vk5, sc5, false);
+    d.key(0x08, 0x0E, true); // Backspace
+    d.key(0x08, 0x0E, false);
+    d.press(shortcut);
+    d.log.stop(d.t, 1_790_863_300_000);
+    let session = d.log.into_session();
+    assert!(
+        session
+            .callouts
+            .iter()
+            .any(|c| c.text.as_deref() == Some("")),
+        "the core logs the emptied run: {:?}",
+        session.callouts
+    );
+
+    let srt = session.export(ExportFormat::Srt, &ExportOptions::default());
+    let cues: Vec<&str> = srt
+        .text
+        .split("\r\n\r\n")
+        .filter(|c| !c.is_empty())
+        .collect();
+    assert_eq!(cues.len(), 1, "{:?}", srt.text);
+    let lines: Vec<&str> = cues[0].split("\r\n").collect();
+    assert_eq!(lines.len(), 3, "index, timing, one caption line: {lines:?}");
+    assert_eq!(lines[0], "1");
+    let caption = lines[2]
+        .split_once("  ")
+        .map(|(_, c)| c)
+        .unwrap_or_else(|| panic!("no caption in {:?}", lines[2]));
+    let commands: BTreeSet<String> = profile
+        .shortcuts
+        .iter()
+        .filter(|s| &s.keys == shortcut)
+        .map(|s| s.command.clone())
+        .collect();
+    assert!(commands.contains(caption), "{caption:?} for {shortcut:?}");
+}

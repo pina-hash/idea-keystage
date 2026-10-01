@@ -348,6 +348,53 @@ pub fn key_toggled(state: i16) -> bool {
     state & 1 != 0
 }
 
+/// The position of a left/right modifier virtual key in [`MODIFIER_VKS`].
+pub(crate) fn modifier_index(code: u16) -> Option<usize> {
+    MODIFIER_VKS.iter().position(|(c, _, _)| *c == code)
+}
+
+/// For this long after a modifier key's last event in the hook stream, the
+/// stream, not `GetAsyncKeyState`, says whether that key is held in a
+/// resync. "The callback function is called before the asynchronous state
+/// of the key is updated" (LowLevelKeyboardProc), so a read made just after
+/// the consumer took a key's record can still report the key's old state
+/// and would re-press a modifier that was just released (or release one
+/// just pressed).
+pub(crate) const RESYNC_STREAM_TRUST_MS: u64 = 100;
+
+/// Packs a modifier key's last stream event (`down`, rebased `t_ms`) into one
+/// atomic word; 0 means "no event". `t_ms` is milliseconds since boot, far
+/// below 2^61.
+pub(crate) fn pack_modifier_event(down: bool, t_ms: u64) -> u64 {
+    (t_ms << 2) | (u64::from(down) << 1) | 1
+}
+
+/// Reverses [`pack_modifier_event`].
+pub(crate) fn unpack_modifier_event(word: u64) -> Option<(bool, u64)> {
+    (word & 1 != 0).then_some((word & 2 != 0, word >> 2))
+}
+
+/// The modifiers to report in a resync: `GetAsyncKeyState`'s answer
+/// (`async_held`), except for keys whose last stream event (`recent`,
+/// indexed like [`MODIFIER_VKS`]) is at most [`RESYNC_STREAM_TRUST_MS`] old
+/// at `now`; for those the stream's state wins. Order follows
+/// [`MODIFIER_VKS`].
+pub(crate) fn reconcile_held(
+    async_held: &[(Mod, Side)],
+    recent: &[Option<(bool, u64)>; 8],
+    now: u64,
+) -> Vec<(Mod, Side)> {
+    MODIFIER_VKS
+        .iter()
+        .zip(recent.iter())
+        .filter(|((_, m, s), last)| match last {
+            Some((down, t)) if now.saturating_sub(*t) <= RESYNC_STREAM_TRUST_MS => *down,
+            _ => async_held.contains(&(*m, *s)),
+        })
+        .map(|((_, m, s), _)| (*m, *s))
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Hook watchdog
 // ---------------------------------------------------------------------------
@@ -364,6 +411,45 @@ pub const WATCHDOG_THRESHOLD_MS: u32 = 3_000;
 pub fn hook_looks_dead(last_input: u32, last_hook: u32, threshold: u32) -> bool {
     let gap = last_input.wrapping_sub(last_hook);
     gap > threshold && gap <= i32::MAX as u32
+}
+
+/// Period of the hook thread's own liveness timer.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) const STALL_PROBE_MS: u32 = 50;
+
+/// A gap this long between two liveness ticks means the hook thread did not
+/// run for most of it. A low-level hook call that waits longer than
+/// `LowLevelHooksTimeout` (at most 1000 ms since Windows 10 1709; Microsoft
+/// documents no default) makes Windows remove that one hook "without being
+/// called", and only the hook that timed out goes. The `GetLastInputInfo`
+/// check cannot see a lost keyboard hook while the mouse hook keeps
+/// delivering, so the hook thread reinstalls both hooks after any stall this
+/// long. Healthy gaps are the period plus timer and tick granularity (about
+/// 16 ms each).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) const STALL_THRESHOLD_MS: u64 = 150;
+
+/// Measures how long the hook thread went without running, from the ticks
+/// of its liveness timer. A stall of `d` ms shows as a gap of at least `d`,
+/// so every stall of [`STALL_THRESHOLD_MS`] or more is reported.
+#[derive(Clone, Copy, Debug, Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) struct StallProbe {
+    last: Option<u64>,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl StallProbe {
+    pub(crate) fn new() -> StallProbe {
+        StallProbe::default()
+    }
+
+    /// Records a timer tick at `now` (milliseconds, monotonic). Returns the
+    /// gap since the previous tick when it is at least `threshold`.
+    pub(crate) fn tick(&mut self, now: u64, threshold: u64) -> Option<u64> {
+        let gap = now.saturating_sub(self.last.replace(now)?);
+        (gap >= threshold).then_some(gap)
+    }
 }
 
 #[cfg(test)]
@@ -778,6 +864,61 @@ mod tests {
             4_000,
             WATCHDOG_THRESHOLD_MS
         ));
+    }
+
+    #[test]
+    fn stall_probe_reports_long_gaps_only() {
+        let mut p = StallProbe::new();
+        // The first tick only sets the reference.
+        assert_eq!(p.tick(1_000, STALL_THRESHOLD_MS), None);
+        // Healthy: the period plus timer and tick granularity.
+        assert_eq!(p.tick(1_062, STALL_THRESHOLD_MS), None);
+        assert_eq!(p.tick(1_140, STALL_THRESHOLD_MS), None);
+        // A 400 ms stall shows as at least 400 ms.
+        assert_eq!(p.tick(1_540, STALL_THRESHOLD_MS), Some(400));
+        // Measured from the last tick, so the next healthy tick is quiet.
+        assert_eq!(p.tick(1_590, STALL_THRESHOLD_MS), None);
+        // Exactly the threshold counts; a clock that does not move does not.
+        assert_eq!(p.tick(1_740, STALL_THRESHOLD_MS), Some(150));
+        assert_eq!(p.tick(1_740, STALL_THRESHOLD_MS), None);
+        // Smaller than one probe period plus slack: never a stall.
+        const { assert!(STALL_THRESHOLD_MS > 2 * STALL_PROBE_MS as u64) };
+    }
+
+    #[test]
+    fn modifier_events_pack_and_reconcile() {
+        assert_eq!(unpack_modifier_event(0), None);
+        for (down, t) in [(true, 0), (false, 0), (true, 123_456_789), (false, 1)] {
+            assert_eq!(
+                unpack_modifier_event(pack_modifier_event(down, t)),
+                Some((down, t))
+            );
+        }
+        assert_eq!(modifier_index(vk::LCONTROL), Some(0));
+        assert_eq!(modifier_index(vk::RWIN), Some(7));
+        assert_eq!(modifier_index(vk::F24), None);
+
+        let ctrl_l = (Mod::Ctrl, Side::Left);
+        let shift_l = (Mod::Shift, Side::Left);
+        let now = 10_000;
+        let mut recent = [None; 8];
+        // No stream events: GetAsyncKeyState decides.
+        assert_eq!(reconcile_held(&[ctrl_l], &recent, now), vec![ctrl_l]);
+        // Left Ctrl was released 5 ms ago but the asynchronous state still
+        // says down: the stream wins, Ctrl is not re-pressed.
+        recent[0] = Some((false, now - 5));
+        assert_eq!(reconcile_held(&[ctrl_l], &recent, now), vec![]);
+        // Left Shift was pressed 5 ms ago but is not yet down
+        // asynchronously: the stream wins again.
+        recent[2] = Some((true, now - 5));
+        assert_eq!(reconcile_held(&[], &recent, now), vec![shift_l]);
+        // Older stream events no longer override the system.
+        recent[0] = Some((false, now - RESYNC_STREAM_TRUST_MS - 1));
+        recent[2] = Some((true, now - RESYNC_STREAM_TRUST_MS - 1));
+        assert_eq!(reconcile_held(&[ctrl_l], &recent, now), vec![ctrl_l]);
+        // A record stamped slightly ahead of the clock is recent.
+        recent[0] = Some((false, now + 10));
+        assert_eq!(reconcile_held(&[ctrl_l], &recent, now), vec![]);
     }
 
     #[test]

@@ -360,6 +360,15 @@ impl RecordingClock {
         }
     }
 
+    /// End of the take before the selected one, when there is one. Instants
+    /// before it belong to an earlier recording, not to the selected video's
+    /// lead-in.
+    pub(crate) fn previous_take_end(&self) -> Option<u64> {
+        let prev = self.takes.get(self.selected.checked_sub(1)?)?;
+        // Every take but the last is closed (a new start closes the open one).
+        Some(prev.end.unwrap_or(prev.start))
+    }
+
     /// Length of the video in milliseconds, when known: the selected take's
     /// length (up to the session end for a take still open), or the session
     /// length without OBS.
@@ -601,6 +610,11 @@ mod tests {
         assert_eq!(c.video_length_ms(), Some(4_000));
         assert!(!c.select(2));
         assert_eq!(c.selected(), 0);
+        assert_eq!(c.previous_take_end(), None);
+        assert!(c.select(1));
+        assert_eq!(c.previous_take_end(), Some(5_000));
+        let none = RecordingClock::new(&RecordingLog::default(), 0, Some(40_000));
+        assert_eq!(none.previous_take_end(), None);
     }
 
     #[test]
@@ -615,6 +629,7 @@ mod tests {
         let c = RecordingClock::new(&log, 0, None);
         assert_eq!(c.takes(), 2);
         assert_eq!(c.map(6_000).rec_ms, 1_000);
+        assert_eq!(c.previous_take_end(), Some(5_000));
     }
 
     #[test]

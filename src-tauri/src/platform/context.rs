@@ -126,9 +126,11 @@ pub enum ContextEvent {
     /// The foreground window's process changed (or was first read).
     /// Repeated values for the same process are not sent.
     Foreground(ForegroundInfo),
-    /// Modifiers held right now: sent on every foreground change to a
-    /// readable window, on unlock, and at start. Forward
-    /// `to_input_event()` to the processor.
+    /// Modifiers held right now: sent at start and on unlock, when the
+    /// desktop is readable. Forward `to_input_event()` to the processor. On
+    /// a foreground change the resync arrives instead as an
+    /// `InputEvent::ModifierResync` from `InputReceiver::drain_into`, read
+    /// after the hook records already queued, so it is ordered with them.
     Modifiers(ModifierSnapshot),
     /// A password field gained (`true`) or lost (`false`) the keyboard
     /// focus. While true, suppress everything (`Suppress::Password`). Sent
