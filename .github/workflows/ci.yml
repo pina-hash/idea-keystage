@@ -1,12 +1,116 @@
 name: CI
+
 on:
   push:
     branches: [main]
+  pull_request:
+
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  bootstrap:
+  linux:
+    name: Linux (front end, core crates)
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - run: echo "IDEA Keystage bootstrap; the full CI replaces this job."
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm packages
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Front end tests
+        run: npm test
+
+      - name: Build the front end
+        run: npm run build
+
+      - name: Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      # default-members: keystage-core, keystage-session, keystage-server and
+      # keystage-obs. The Tauri app is built and tested in the Windows job.
+      - name: Rust tests
+        run: cargo test --locked
+
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Rust formatting
+        run: cargo fmt --all --check
+
+  windows:
+    name: Windows (app)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install npm packages
+        run: npm ci
+
+      # The app embeds dist/ at compile time.
+      - name: Build the front end
+        run: npm run build
+
+      - name: Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - uses: Swatinem/rust-cache@v2
+
+      # tauri/custom-protocol is the feature `tauri build` turns on: without it
+      # the exe would load the Vite dev server instead of its embedded pages.
+      - name: Build the app (release)
+        run: cargo build -p idea-keystage --release --locked --features tauri/custom-protocol
+
+      # The platform tests use the real hooks (an injected F24), UI Automation,
+      # DPAPI and the overlay style guard; they run only on Windows.
+      - name: App and platform tests
+        run: cargo test -p idea-keystage --locked
+
+      - name: Clippy (app)
+        run: cargo clippy -p idea-keystage --locked --all-targets -- -D warnings
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: idea-keystage-windows-x64
+          path: target/release/idea-keystage.exe
+          if-no-files-found: error
+          retention-days: 14
