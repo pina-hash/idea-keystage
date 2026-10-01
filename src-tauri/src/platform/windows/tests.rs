@@ -184,18 +184,23 @@ fn overlay_guard_keeps_the_overlay_styles() {
         .expect("thread");
         assert!(matches!(other, Err(PlatformError::WrongThread(_))));
 
-        // The real overlay is a displayed window whenever it is put on top.
-        // This test window is layered (the guard forces WS_EX_LAYERED), and
-        // "the layered window will not become visible until the
-        // SetLayeredWindowAttributes or UpdateLayeredWindow function has been
-        // called" (Layered Windows, learn.microsoft.com). Wine marked the
-        // undisplayed window topmost anyway; windows-latest did not
-        // (2026-10-01), so give it attributes and show it, as WebView2 does
-        // for the real overlay.
+        // What this code controls is the call: SetWindowPos(HWND_TOPMOST)
+        // without activating, which must succeed, and the guard, which must
+        // keep the overlay styles through it. Whether Windows then reports
+        // WS_EX_TOPMOST is the session's business: Wine does, but the hosted
+        // windows-latest runner left it off three times on 2026-10-01 even for
+        // a shown, layered-attributed window. The real overlay also gets
+        // WS_EX_TOPMOST from tao at creation (always_on_top). Staying above
+        // SolidWorks is on the manual Windows checklist.
         let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         window_style::reassert_topmost(hwnd).expect("topmost");
-        assert_ne!(ex_style(hwnd) & WS_EX_TOPMOST.0, 0);
+        let ex = ex_style(hwnd);
+        assert_eq!(ex & OVERLAY_EX_STYLE_ON, OVERLAY_EX_STYLE_ON, "{ex:#x}");
+        assert_eq!(ex & OVERLAY_EX_STYLE_OFF, 0, "{ex:#x}");
+        if running_under_wine() {
+            assert_ne!(ex & WS_EX_TOPMOST.0, 0);
+        }
         // The watcher's variant targets the guarded window from any thread.
         assert!(window_style::reassert_overlay_topmost_async());
         let from_other_thread = thread::spawn(window_style::reassert_overlay_topmost_async)
