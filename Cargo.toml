@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = ["crates/keystage-core", "crates/keystage-session", "crates/keystage-server", "crates/keystage-obs", "src-tauri"]
+# `cargo test` on Linux builds only the platform-independent crates.
+default-members = ["crates/keystage-core", "crates/keystage-session", "crates/keystage-server", "crates/keystage-obs"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+authors = ["IDEA Engineering Pathway"]
+
+[workspace.dependencies]
+keystage-core = { path = "crates/keystage-core" }
+keystage-session = { path = "crates/keystage-session" }
+keystage-server = { path = "crates/keystage-server" }
+keystage-obs = { path = "crates/keystage-obs" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+thiserror = "=2.0.21"
+anyhow = "=1.0.104"
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
+tokio = { version = "=1.53.1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"] }
+axum = { version = "=0.8.9", features = ["ws"] }
+tokio-tungstenite = "=0.29.0"
+futures-util = "=0.3.34"
+base64 = "=0.22.1"
+sha2 = "=0.11.0"
+tempfile = "=3.27.0"
+crossbeam-channel = "=0.5.17"
+crossbeam-queue = "=0.3.14"
+parking_lot = "=0.12.5"
+mime_guess = "=2.0.5"
+rodio = { version = "=0.22.2", default-features = false, features = ["playback", "wav"] }
+windows = "=0.62.2"
+windows-core = "=0.62.2"
+tauri = "=2.12.1"
+tauri-build = "=2.7.1"
+tauri-plugin-single-instance = "=2.5.2"
+tauri-plugin-global-shortcut = "=2.4.0"
+tauri-plugin-autostart = "=2.7.0"
+tauri-plugin-dialog = "=2.8.1"
+tauri-plugin-clipboard-manager = "=2.4.1"
+tauri-plugin-opener = "=2.7.0"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+strip = true

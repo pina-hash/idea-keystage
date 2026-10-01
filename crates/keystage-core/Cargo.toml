@@ -1,0 +1,13 @@
+[package]
+name = "keystage-core"
+description = "Platform-independent input model and logic for IDEA Keystage: combos, repeats, chords, text runs, masking, profiles, settings, protocol, session exports."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

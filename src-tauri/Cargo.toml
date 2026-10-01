@@ -1,0 +1,54 @@
+[package]
+name = "idea-keystage"
+description = "IDEA Keystage: keystroke, keyboard and mouse visualizer for SolidWorks tutorial recording."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+authors.workspace = true
+default-run = "idea-keystage"
+
+[lib]
+name = "idea_keystage_lib"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "idea-keystage"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { workspace = true, features = [] }
+
+[dependencies]
+keystage-core.workspace = true
+keystage-session.workspace = true
+keystage-server.workspace = true
+keystage-obs.workspace = true
+tauri = { workspace = true, features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance.workspace = true
+tauri-plugin-global-shortcut.workspace = true
+tauri-plugin-autostart.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-plugin-clipboard-manager.workspace = true
+tauri-plugin-opener.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+crossbeam-channel.workspace = true
+crossbeam-queue.workspace = true
+parking_lot.workspace = true
+base64.workspace = true
+rodio.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+] }

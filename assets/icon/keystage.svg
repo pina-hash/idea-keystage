@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- IDEA Keystage app icon. Original artwork: a raised keycap on a lit stage. -->
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a302c"/>
+      <stop offset="1" stop-color="#141716"/>
+    </linearGradient>
+    <linearGradient id="capSide" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b423d"/>
+      <stop offset="1" stop-color="#1b1f1d"/>
+    </linearGradient>
+    <linearGradient id="capFace" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f6f5"/>
+      <stop offset="1" stop-color="#cfd5d1"/>
+    </linearGradient>
+    <radialGradient id="stage" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#8fe08a" stop-opacity="0.95"/>
+      <stop offset="0.55" stop-color="#78b870" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#78b870" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+  </defs>
+  <!-- Plate: rounded rectangle with chamfered corners -->
+  <path d="M208.0 88.0 Q232 64 266.0 64.0 L758.0 64.0 Q792 64 816.0 88.0 L936.0 208.0 Q960 232 960.0 266.0 L960.0 758.0 Q960 792 936.0 816.0 L816.0 936.0 Q792 960 758.0 960.0 L266.0 960.0 Q232 960 208.0 936.0 L88.0 816.0 Q64 792 64.0 758.0 L64.0 266.0 Q64 232 88.0 208.0 Z" fill="url(#plate)" stroke="#656f68" stroke-width="10" stroke-linejoin="round"/>
+  <path d="M250 96 H776" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="8" stroke-linecap="round"/>
+  <!-- Stage glow -->
+  <ellipse cx="512" cy="770" rx="330" ry="78" fill="url(#stage)" filter="url(#soft)"/>
+  <rect x="236" y="756" width="552" height="22" rx="11" fill="#8fe08a"/>
+  <!-- Keycap side -->
+  <path d="M300 300 Q300 250 350 250 H674 Q724 250 724 300 V640 Q724 700 664 700 H360 Q300 700 300 640 Z" fill="url(#capSide)" stroke="#0c0e0d" stroke-width="8"/>
+  <!-- Keycap face -->
+  <path d="M352 286 H672 Q700 286 700 314 V560 Q700 600 660 600 H364 Q324 600 324 560 V314 Q324 286 352 286 Z" fill="url(#capFace)"/>
+  <path d="M352 292 H672" stroke="#ffffff" stroke-width="6" stroke-linecap="round"/>
+  <!-- Legend: a bold K built from strokes -->
+  <g fill="none" stroke="#1d2420" stroke-width="58" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M440 356 V530"/>
+    <path d="M590 356 L470 450 L596 530"/>
+  </g>
+</svg>

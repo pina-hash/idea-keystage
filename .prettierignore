@@ -1,0 +1,8 @@
+dist/
+node_modules/
+src-tauri/target/
+target/
+.work/
+data/profiles/
+package-lock.json
+src-tauri/gen/
