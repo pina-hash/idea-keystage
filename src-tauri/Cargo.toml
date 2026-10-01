@@ -45,10 +45,26 @@ base64.workspace = true
 rodio.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+# Owned by the Windows platform layer (src/platform). Each feature is listed
+# with the APIs that need it; see .work/research/windows.md for the sources.
 windows = { workspace = true, features = [
-    "Win32_Foundation",
-    "Win32_UI_WindowsAndMessaging",
-    "Win32_UI_Input_KeyboardAndMouse",
-    "Win32_System_Threading",
-    "Win32_System_LibraryLoader",
+    "Win32_Foundation",                 # HWND, HANDLE, LocalFree, CloseHandle
+    "Win32_UI_WindowsAndMessaging",     # hooks, message loops, window styles, WinEvent constants
+    "Win32_UI_Input_KeyboardAndMouse",  # GetAsyncKeyState, ToUnicodeEx, MapVirtualKeyExW, GetLastInputInfo
+    "Win32_System_Threading",           # OpenProcess, QueryFullProcessImageNameW, GetCurrentThreadId
+    "Win32_System_LibraryLoader",       # GetModuleHandleW (hook hMod)
+    "Win32_System_SystemInformation",   # GetTickCount64, OSVERSIONINFOW
+    "Wdk_System_SystemServices",        # RtlGetVersion (real build number without a compatibility manifest)
+    "Win32_UI_Accessibility",           # SetWinEventHook, UI Automation IsPassword
+    "Win32_System_Com",                 # CoInitializeEx, CoCreateInstance (UI Automation)
+    "Win32_System_RemoteDesktop",       # WTSRegisterSessionNotification
+    "Win32_Graphics_Gdi",               # EnumDisplayMonitors, GetMonitorInfoW, RegisterClassExW gate
+    "Win32_Devices_Display",            # QueryDisplayConfig, DisplayConfigGetDeviceInfo (monitor names)
+    "Win32_UI_HiDpi",                   # GetDpiForMonitor, GetDpiForWindow
+    "Win32_UI_Shell",                   # SetWindowSubclass (overlay style guard)
+    "Win32_Security",                   # OpenProcessToken gate, TOKEN_ELEVATION
+    "Win32_Security_Cryptography",      # CryptProtectData, CryptUnprotectData
 ] }
+# Needed as a direct dependency for #[windows::core::implement] (the UI Automation
+# focus handler); same version as the windows crate.
+windows-core.workspace = true
