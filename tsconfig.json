@@ -15,10 +15,9 @@
 		"allowJs": true,
 		"checkJs": false,
 		"noEmit": true,
-		"baseUrl": ".",
 		"paths": {
-			"$lib/*": ["src/lib/*"],
-			"$data/*": ["data/*"]
+			"$lib/*": ["./src/lib/*"],
+			"$data/*": ["./data/*"]
 		}
 	},
 	"include": ["src/**/*.ts", "src/**/*.svelte", "tests/unit/**/*.ts", "vite.config.ts", "data/**/*.json"],

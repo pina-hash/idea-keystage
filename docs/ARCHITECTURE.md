@@ -85,7 +85,7 @@ let out2 = p.tick(now_ms);                    // closes runs/chords whose window
 * While suppressed, `handle` returns nothing except the modifier bookkeeping it needs internally. Nothing reaches a host, the log or the sound player. Leaving suppression emits `ModifiersReleased` so no stale key stays lit.
 * Combo: a non-modifier key down while any modifier is held makes one callout: chips `Ctrl`, `Shift`, `S`, text form `Ctrl + Shift + S` (modifier order Ctrl, Shift, Alt, AltGr, Win).
 * Repeat collapsing: the same combo (or same single key) again within `repeat_window_ms` (default 1000), or an auto-repeat, updates the SAME callout id with `count += 1`. Text form `Ctrl + Z x4`.
-* Chord grouping: a solo Alt tap followed by single keys within `chord_window_ms` (default 900) becomes one callout with several steps (`Alt, F, C`). Profiles may also declare chord leaders (`"chords": [["Ctrl","K"]]`), after which the next combo within the window joins the same callout as a second step.
+* Chord grouping: a solo Alt tap followed by single keys within `chord_window_ms` (default 900) becomes one callout with several steps (`Alt, F, C`). Profiles may also declare chord leaders (`"chords": [["Ctrl","K"]]`), after which the next combo within the window joins the same callout as a second step. (Examples in this file use entries that exist in the sourced data; the often-quoted `Ctrl + 8` "Normal To" is not documented for 2025 or 2026, see DECISIONS item 3.)
 * Text runs: when typing is shown, consecutive printable characters (no modifier except Shift, or AltGr) within `text_run_gap_ms` (default 1500) extend one `Text` callout. Backspace removes the last character of an open run; Enter and Tab close it and appear as a trailing chip.
 * Masking (`TypingMode::ShortcutsOnly`, the default outside SolidWorks): printable keys with no modifier other than Shift are masked. A masked keystroke produces at most one `Masked` callout per run ("Typing") with no key identity, and no `key` message, so the keyboard visual never reveals text. Modifier combos and special keys (F-keys, Esc, Enter, Tab, Backspace, Delete, arrows, navigation, PrintScreen, media) are shown.
 * SolidWorks profile (`TypingMode::All`): bare single keys are shown; a single key that matches a profile shortcut is a `Key` callout with its caption, never merged into a text run. Typed values (digits, `.`, `-`, letters that are not shortcuts) form text runs while `typed_values` is on; when it is off they are masked exactly as above, but profile single-key shortcuts still show.
@@ -124,7 +124,7 @@ Server to client. Every message has `"t"`.
 { "t": "config", "config": OverlayConfig }
 { "t": "state", "state": AppState }
 { "t": "legends", "layout": "00000409", "legends": { "sc:1E": "A", "sc:27": ";" } }
-{ "t": "callout", "callout": { "id": 7, "kind": "combo", "steps": [[{"key":"Ctrl","label":"Ctrl","kind":"modifier"},{"key":"8","label":"8","kind":"key"}]], "text": null, "count": 1, "caption": "Normal To", "context": null, "profile": "solidworks", "t_ms": 1234, "updated_ms": 1234 } }
+{ "t": "callout", "callout": { "id": 7, "kind": "combo", "steps": [[{"key":"Ctrl","label":"Ctrl","kind":"modifier"},{"key":"B","label":"B","kind":"key"}]], "text": null, "count": 1, "caption": "Rebuilds the model", "context": null, "profile": "solidworks", "t_ms": 1234, "updated_ms": 1234 } }
 { "t": "key", "phys": "sc:1D", "key": "Ctrl", "down": true, "modifier": "ctrl", "t_ms": 1234 }
 { "t": "button", "button": "middle", "down": true, "x": 0.52, "y": 0.47, "t_ms": 1234 }
 { "t": "wheel", "dx": 0, "dy": -120, "x": 0.52, "y": 0.47, "t_ms": 1234 }
@@ -223,7 +223,7 @@ Default hotkeys: pause `Ctrl+Alt+Shift+P`, keyboard visual `Ctrl+Alt+Shift+K`, S
   "visual": { "theme": null },
   "chords": [],
   "sources": [ { "id": "...", "url": "...", "title": "...", "version": "2025", "read": "2026-10-01" } ],
-  "shortcuts": [ { "id": "kb-001", "keys": ["Ctrl","8"], "doc_keys": "Ctrl+8", "command": "Normal To", "description": "...", "group": "...", "context": "", "versions": ["2025","2026"], "source_ids": ["..."], "quote": "..." } ],
+  "shortcuts": [ { "id": "kb-001", "keys": ["Ctrl","B"], "doc_keys": "Ctrl + B", "command": "Rebuilds the model", "description": "...", "group": "...", "context": "", "versions": ["2025","2026"], "source_ids": ["..."], "quote": "..." } ],
   "mouse": [ { "id": "ms-001", "button": "middle", "action": "drag", "modifiers": ["Ctrl"], "direction": null, "command": "Pan", "description": "...", "context": "", "versions": ["2025","2026"], "source_ids": ["..."], "quote": "..." } ],
   "differences": [], "gaps": []
 }
@@ -241,7 +241,7 @@ Default hotkeys: pause `Ctrl+Alt+Shift+P`, keyboard visual `Ctrl+Alt+Shift+K`, S
 ## 10. Session Log and exports (crate `keystage-session`)
 
 * A session holds `callout` snapshots (final state of each callout id), chapter markers `{ t_ms, name }`, start time, and an optional OBS timecode mapping (record duration at a known monotonic instant, paused intervals).
-* Exports: `.srt` (one cue per callout: `Ctrl + 8  Normal To`), Markdown ("Shortcuts used in this video", unique shortcuts with command names and counts, ASCII `x4`), JSON (`keystage.session/1`, documented in `docs/SESSION_FORMAT.md`), YouTube chapter lines (`00:00 Start`, then markers; YouTube needs the first at 00:00).
+* Exports: `.srt` (one cue per callout: `Ctrl + B  Rebuilds the model`), Markdown ("Shortcuts used in this video", unique shortcuts with command names and counts, ASCII `x4`), JSON (`keystage.session/1`, documented in `docs/SESSION_FORMAT.md`), YouTube chapter lines (`00:00 Start`, then markers; YouTube needs the first at 00:00).
 
 ## 11. Look
 

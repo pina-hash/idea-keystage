@@ -5,3 +5,5 @@
 *.woff2 binary
 *.wav binary
 *.sldreg binary
+crates/keystage-core/tests/fixtures/sw-shortcuts/*.txt -text
+crates/keystage-core/tests/fixtures/sw-shortcuts/*.sldreg -text
