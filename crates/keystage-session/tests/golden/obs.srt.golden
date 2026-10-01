@@ -1,0 +1,29 @@
+1
+00:00:02,039 --> 00:00:04,239
+Ctrl + S  Fixture save
+
+2
+00:00:06,035 --> 00:00:09,733
+Ctrl + Z x4  Fixture undo
+F  Fixture fit (Graphics area)
+
+3
+00:00:14,027 --> 00:00:17,226
+Ctrl + Middle drag  Fixture pan
+
+4
+00:00:19,022 --> 00:00:22,221
+25.4 Enter
+
+5
+00:00:29,020 --> 00:00:31,820
+Alt, F, C  Fixture close
+
+6
+00:00:44,020 --> 00:00:46,620
+Ctrl + S x2  Fixture save
+
+7
+00:00:54,020 --> 00:00:57,220
+Wheel up x5  Fixture zoom
+

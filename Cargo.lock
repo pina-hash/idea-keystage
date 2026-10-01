@@ -2350,6 +2350,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
+ "keystage-core",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -2369,6 +2370,7 @@ dependencies = [
  "mime_guess",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite",
@@ -2382,6 +2384,7 @@ dependencies = [
  "keystage-core",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

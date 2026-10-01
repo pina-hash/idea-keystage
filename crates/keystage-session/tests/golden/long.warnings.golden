@@ -1,0 +1,12 @@
+[srt]
+{"kind":"session_clock"}
+OBS timing was not available, so times count from the start of the session log. They match the video only if recording started at the same moment.
+[md]
+{"kind":"session_clock"}
+OBS timing was not available, so times count from the start of the session log. They match the video only if recording started at the same moment.
+[json]
+[chapters]
+{"kind":"session_clock"}
+OBS timing was not available, so times count from the start of the session log. They match the video only if recording started at the same moment.
+{"kind":"short_chapter","time":"1:00:50","name":"Last part","length_ms":5000}
+Chapter "Last part" at 1:00:50 is 5 seconds long. YouTube needs chapters of at least 10 seconds.

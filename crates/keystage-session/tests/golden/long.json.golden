@@ -1,0 +1,90 @@
+{
+  "schema": "keystage.session/1",
+  "id": "2026-10-01T14-00-00Z",
+  "app": {
+    "name": "IDEA Keystage",
+    "version": "0.1.0"
+  },
+  "started": "2026-10-01T14:00:00.000Z",
+  "started_unix_ms": 1790863200000,
+  "ended": "2026-10-01T15:06:40.000Z",
+  "ended_unix_ms": 1790867200000,
+  "start_ms": 0,
+  "end_ms": 4000000,
+  "recording": {
+    "events": [],
+    "samples": []
+  },
+  "markers": [
+    {
+      "t_ms": 1800000,
+      "name": "Halfway"
+    },
+    {
+      "t_ms": 3650000,
+      "name": "Last part"
+    },
+    {
+      "t_ms": 3655000,
+      "name": "Too close"
+    }
+  ],
+  "callouts": [
+    {
+      "id": 1,
+      "kind": "combo",
+      "steps": [
+        [
+          {
+            "key": "Ctrl",
+            "label": "Ctrl",
+            "kind": "modifier"
+          },
+          {
+            "key": "Shift",
+            "label": "Shift",
+            "kind": "modifier"
+          },
+          {
+            "key": "N",
+            "label": "N",
+            "kind": "key"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 1,
+      "caption": null,
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 65000,
+      "updated_ms": 65000
+    },
+    {
+      "id": 2,
+      "kind": "combo",
+      "steps": [
+        [
+          {
+            "key": "Ctrl",
+            "label": "Ctrl",
+            "kind": "modifier"
+          },
+          {
+            "key": "K",
+            "label": "K",
+            "kind": "key"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 3,
+      "caption": "Fixture caption",
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 3700000,
+      "updated_ms": 3701000
+    }
+  ],
+  "truncated": false
+}

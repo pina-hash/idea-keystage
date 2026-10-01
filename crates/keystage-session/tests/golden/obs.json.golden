@@ -1,0 +1,339 @@
+{
+  "schema": "keystage.session/1",
+  "id": "2026-10-01T14-00-00Z",
+  "app": {
+    "name": "IDEA Keystage",
+    "version": "0.1.0"
+  },
+  "started": "2026-10-01T14:00:00.000Z",
+  "started_unix_ms": 1790863200000,
+  "ended": "2026-10-01T14:01:35.000Z",
+  "ended_unix_ms": 1790863295000,
+  "start_ms": 5000,
+  "end_ms": 100000,
+  "recording": {
+    "events": [
+      {
+        "t_ms": 6000,
+        "event": "started"
+      },
+      {
+        "t_ms": 40000,
+        "event": "paused"
+      },
+      {
+        "t_ms": 50000,
+        "event": "resumed"
+      },
+      {
+        "t_ms": 95000,
+        "event": "stopped"
+      }
+    ],
+    "samples": [
+      {
+        "t_ms": 7000,
+        "duration_ms": 1040,
+        "paused": false
+      },
+      {
+        "t_ms": 27000,
+        "duration_ms": 21020,
+        "paused": false
+      },
+      {
+        "t_ms": 41000,
+        "duration_ms": 34020,
+        "paused": true
+      },
+      {
+        "t_ms": 51000,
+        "duration_ms": 35020,
+        "paused": false
+      }
+    ]
+  },
+  "markers": [
+    {
+      "t_ms": 6200,
+      "name": "Intro"
+    },
+    {
+      "t_ms": 20000,
+      "name": "Sketch"
+    },
+    {
+      "t_ms": 52000,
+      "name": "Chapter 3"
+    },
+    {
+      "t_ms": 80000,
+      "name": "Wrap up"
+    },
+    {
+      "t_ms": 97000,
+      "name": "Too late"
+    }
+  ],
+  "callouts": [
+    {
+      "id": 1,
+      "kind": "combo",
+      "steps": [
+        [
+          {
+            "key": "Ctrl",
+            "label": "Ctrl",
+            "kind": "modifier"
+          },
+          {
+            "key": "S",
+            "label": "S",
+            "kind": "key"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 1,
+      "caption": "Fixture save",
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 8000,
+      "updated_ms": 8000
+    },
+    {
+      "id": 2,
+      "kind": "combo",
+      "steps": [
+        [
+          {
+            "key": "Ctrl",
+            "label": "Ctrl",
+            "kind": "modifier"
+          },
+          {
+            "key": "Z",
+            "label": "Z",
+            "kind": "key"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 4,
+      "caption": "Fixture undo",
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 12000,
+      "updated_ms": 13500
+    },
+    {
+      "id": 3,
+      "kind": "key",
+      "steps": [
+        [
+          {
+            "key": "F",
+            "label": "F",
+            "kind": "key"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 1,
+      "caption": "Fixture fit",
+      "context": "Graphics area",
+      "profile": "fixture",
+      "t_ms": 12400,
+      "updated_ms": 12400
+    },
+    {
+      "id": 4,
+      "kind": "mouse",
+      "steps": [
+        [
+          {
+            "key": "Ctrl",
+            "label": "Ctrl",
+            "kind": "modifier"
+          },
+          {
+            "key": "MiddleDrag",
+            "label": "Middle drag",
+            "kind": "mouse"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 1,
+      "caption": "Fixture pan",
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 20000,
+      "updated_ms": 21000
+    },
+    {
+      "id": 5,
+      "kind": "text",
+      "steps": [
+        [
+          {
+            "key": "Enter",
+            "label": "Enter",
+            "kind": "key"
+          }
+        ]
+      ],
+      "text": "25.4",
+      "count": 1,
+      "caption": null,
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 25000,
+      "updated_ms": 26000
+    },
+    {
+      "id": 6,
+      "kind": "masked",
+      "steps": [
+        []
+      ],
+      "text": null,
+      "count": 1,
+      "caption": null,
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 30000,
+      "updated_ms": 31000
+    },
+    {
+      "id": 7,
+      "kind": "chord",
+      "steps": [
+        [
+          {
+            "key": "Alt",
+            "label": "Alt",
+            "kind": "modifier"
+          }
+        ],
+        [
+          {
+            "key": "F",
+            "label": "F",
+            "kind": "key"
+          }
+        ],
+        [
+          {
+            "key": "C",
+            "label": "C",
+            "kind": "key"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 1,
+      "caption": "Fixture close",
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 35000,
+      "updated_ms": 35600
+    },
+    {
+      "id": 8,
+      "kind": "combo",
+      "steps": [
+        [
+          {
+            "key": "Ctrl",
+            "label": "Ctrl",
+            "kind": "modifier"
+          },
+          {
+            "key": "P",
+            "label": "P",
+            "kind": "key"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 1,
+      "caption": "Fixture during pause",
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 45000,
+      "updated_ms": 45000
+    },
+    {
+      "id": 9,
+      "kind": "combo",
+      "steps": [
+        [
+          {
+            "key": "Ctrl",
+            "label": "Ctrl",
+            "kind": "modifier"
+          },
+          {
+            "key": "S",
+            "label": "S",
+            "kind": "key"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 2,
+      "caption": "Fixture save",
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 60000,
+      "updated_ms": 60400
+    },
+    {
+      "id": 10,
+      "kind": "mouse",
+      "steps": [
+        [
+          {
+            "key": "WheelUp",
+            "label": "Wheel up",
+            "kind": "mouse"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 5,
+      "caption": "Fixture zoom",
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 70000,
+      "updated_ms": 71000
+    },
+    {
+      "id": 11,
+      "kind": "combo",
+      "steps": [
+        [
+          {
+            "key": "Ctrl",
+            "label": "Ctrl",
+            "kind": "modifier"
+          },
+          {
+            "key": "Q",
+            "label": "Q",
+            "kind": "key"
+          }
+        ]
+      ],
+      "text": null,
+      "count": 1,
+      "caption": "Fixture after stop",
+      "context": null,
+      "profile": "fixture",
+      "t_ms": 96000,
+      "updated_ms": 96000
+    }
+  ],
+  "truncated": false
+}
