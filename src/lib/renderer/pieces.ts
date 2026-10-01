@@ -44,14 +44,18 @@ export function visiblePieces(
 			return { ...NO_PIECES, mouse: true };
 		case 'cursor':
 			return { ...NO_PIECES, cursor: true };
-		case 'all':
+		case 'all': {
+			const keyboard = config.keyboard.enabled && kbVisible;
 			return {
 				callouts: config.callouts.enabled,
-				keyboard: config.keyboard.enabled && kbVisible,
-				mouse: config.mouse.enabled,
+				keyboard,
+				// One mouse per page: while the keyboard draws its own mouse
+				// beside it, the standalone diagram stays off on this route.
+				mouse: config.mouse.enabled && !(keyboard && config.keyboard.mouse),
 				cursor: config.cursor.enabled,
 				indicators: true,
 			};
+		}
 	}
 }
 

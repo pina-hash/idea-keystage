@@ -55,6 +55,22 @@ describe('visible pieces', () => {
 		});
 	});
 
+	it('the all route draws one mouse: the standalone diagram yields to the keyboard mouse', () => {
+		const both = {
+			...config,
+			keyboard: { ...config.keyboard, enabled: true, mouse: true },
+			mouse: { ...config.mouse, enabled: true },
+		};
+		expect(visiblePieces('all', both, state, 'native')).toMatchObject({
+			keyboard: true,
+			mouse: false,
+		});
+		const noKbMouse = { ...both, keyboard: { ...both.keyboard, mouse: false } };
+		expect(visiblePieces('all', noKbMouse, state, 'native')).toMatchObject({ mouse: true });
+		// The dedicated mouse route always draws it.
+		expect(visiblePieces('mouse', both, state, 'obs')).toMatchObject({ mouse: true });
+	});
+
 	it('shows Paused or Hidden only when the indicators allow it, never naming an app', () => {
 		expect(indicatorsFor(config, state)).toEqual([]);
 		expect(indicatorsFor(config, { ...state, paused: true })).toEqual([
