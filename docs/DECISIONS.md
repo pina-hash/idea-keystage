@@ -73,7 +73,37 @@ Toolchain: `rustc 1.97.0`, `cargo 1.97.0` (tauri 2.12.1 declares `rust-version =
 
 ### 3. SolidWorks shortcuts and mouse controls
 
-_Pending: filled from the sourced data file once extraction and adversarial verification finish._
+**Answer: the SolidWorks profile data is sourced only from Dassault's SOLIDWORKS Design Help on help.solidworks.com for 2025 and 2026, and lives in `data/profiles/solidworks.json`, where every entry carries its URL, version and date read (2026-10-01) plus a verbatim quote.** Two extraction agents read the help topics (keyboard and view orientation; mouse, middle button, wheel and gestures), then two independent verifiers re-fetched every cited page and removed or corrected anything the quote did not support. Final counts, the 2025 versus 2026 differences and the full gap list are below.
+
+How the pages were read: help.solidworks.com is a Next.js site that answers plain `curl` with HTTP 403 (Akamai) but serves a topic, with a browser user agent, whose body sits in the page's `__NEXT_DATA__` JSON at `props.pageProps.helpContentData.helpText`. A helper script extracted that text for each topic URL, `https://help.solidworks.com/<version>/english/SolidWorks/<file>`. Starting topics: `sldworks/r_keyboard_shortcuts.htm` (Keyboard Shortcuts), `c_time_saving_keyboard_shortcuts.htm` (Selected Keyboard Shortcuts), `HIDD_CUSTOMIZE_KEYBOARD.htm`, `r_Middle_Mouse_Button.htm` (Middle Mouse Button Functions) and `c_mouse_sestures.htm` (Mouse Gestures; Dassault's filename is misspelled), then every linked topic.
+
+**Counts (after verification).** 359 keyboard entries and 183 mouse entries, citing 293 source pages (138 for 2025, 155 for 2026). 528 entries appear in both versions, 12 only in 2026, 2 only in 2025. The keyboard verifier checked 361 extracted entries, moved 2 whose quotes named no mouse action into the shortcut list, corrected 69 groups of fields (mostly quotes that did not contain the key or every word of the caption), and added 32 entries the extractor missed. The mouse verifier checked 191 entries, removed none, corrected 25 and added 20. Merging removed 36 duplicate shortcuts and 26 duplicate mouse entries that both agents had found.
+
+**2025 versus 2026.** No documented mouse binding, mouse gesture rule or view option changed. The keyboard differences are small and are all recorded in the data file's `differences` list (31 items). The ones a user could notice:
+* Selection filters: 2025 lists E (edges), X (faces) and V (vertices); 2026 adds F6 (Toggle Selection Filters) and notes more filters that can be assigned keys (`r_selection_filter.htm`).
+* Autotransitioning: in both versions A switches between line and arc; 2026 adds that it is "Available when Enable on screen numeric input on entity creation is cleared" (`t_Autotransitioning.htm`).
+* Search: 2026 adds "To find and run commands, click Search Commands or press S." (`c_search.htm`); W and S for search are in both.
+* Relation groups (Ctrl + select) exist only in 2026; several 3DEXPERIENCE-only Alt + drag statements appear only in 2026.
+* 2026 renames the product "SOLIDWORKS Design" throughout; the mouse gesture tutorial with named 8-gesture mappings exists only on the 2026 site.
+
+**Gaps (no Dassault page for 2025 or 2026 documents these, so the data has no entry for them).** These are reported, not filled from memory:
+1. **Ctrl + number standard view shortcuts** (Front, Isometric, Normal To and so on). The prompt's own example, `Ctrl + 8` captioned "Normal To", is therefore **not** in the data. Searched: Standard Views Toolbar, Orientation, Orientation Dialog Box, View Selector, View Toolbar, Heads-up View Toolbar, Selected Keyboard Shortcuts, and the site search for "Ctrl+8", "Ctrl+1", "Isometric Ctrl" in both versions.
+2. **A complete list of default keyboard shortcuts.** It is not published as a help topic; Dassault directs users to the Keyboard tab's Print List or Copy List. This is why the Copy List import (item 4) matters: it brings the user's own full list, including standard view keys, into the captions.
+3. Middle mouse button double-click (for example zoom to fit): not documented.
+4. Which wheel direction zooms in by default: not documented (only the "Reverse mouse wheel zoom direction" option); wheel entries match both directions.
+5. Factory default mouse gesture assignments per document type: shown only as unlabeled images; the 2026 online tutorial names a few 8-gesture mappings, which are in the data as 2026 only.
+6. The 2025 online tutorials ("swtutorialonline") do not exist on the 2025 site.
+7. Gesture directions for 2, 3, 4 and 12 gesture guides are not documented in text.
+8. Access keys other than the Alt+F example are not enumerated; walk-through speed number keys are not named; "Alt + specified values" symbol entry and generic "hold Ctrl and select" mentions across feature topics were not encoded one by one.
+9. View topics with no keyboard shortcut at all (Previous View, Zoom to Area, Zoom to Selection, Zoom to Sheet, Viewports, Model View, Predefined Views).
+10. Guides outside the core `sldworks` help (Simulation, Motion, Routing, Toolbox) were not mined.
+
+The full list of 17 gaps, each with the URL checked and the reason, is the `gaps` array in `data/profiles/solidworks.json`. A targeted second search for gaps 1, 3, 4 and 5 ran after assembly; its result is recorded in the Build decisions below.
+
+What changed in the design because of this answer:
+* Captions are shown only for sourced entries. Because many sourced entries are context-specific (the same key does different things in a sketch, an assembly or a dialog), each caption carries its context in small type, and an entry with no stated context wins a tie.
+* "drag" or "click" with no button named in the documentation is kept as button `unspecified` in the data. The code matches it to a left-button drag or click. That is an interpretation, not a documented fact (the pages say "drag" without naming a button), and the code says so where it does it.
+* The Copy List import became the way to get complete captions, since the documentation itself is incomplete.
 
 ### 4. Exporting and reading customized keyboard shortcuts
 
