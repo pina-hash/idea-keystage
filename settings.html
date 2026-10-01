@@ -3,7 +3,21 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<title>IDEA Keystage</title>
+		<meta name="color-scheme" content="dark light" />
+		<title>IDEA Keystage settings</title>
+		<style>
+			/* The plate's ground from the first frame, so the window never flashes white. */
+			html,
+			body {
+				margin: 0;
+				height: 100%;
+				background: #121413;
+			}
+			html[data-plate='space-white'],
+			html[data-plate='space-white'] body {
+				background: #dfe3ea;
+			}
+		</style>
 	</head>
 	<body>
 		<div id="app"></div>

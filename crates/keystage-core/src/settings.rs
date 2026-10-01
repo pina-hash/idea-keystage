@@ -272,10 +272,21 @@ impl Default for SessionSettings {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StartupSettings {
     pub start_with_windows: bool,
+    /// Open the settings window when the app starts. The first run always opens it.
+    pub show_settings: bool,
+}
+
+impl Default for StartupSettings {
+    fn default() -> Self {
+        StartupSettings {
+            start_with_windows: false,
+            show_settings: true,
+        }
+    }
 }
 
 /// Everything the app stores.
@@ -1040,5 +1051,19 @@ mod tests {
         let (back, issues) = Settings::from_json(&json);
         assert_eq!(back, s);
         assert!(issues.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    #[test]
+    fn show_settings_defaults_to_true_when_missing() {
+        let (settings, _issues) = Settings::from_json(r#"{"startup":{"start_with_windows":true}}"#);
+        assert!(settings.startup.start_with_windows);
+        assert!(settings.startup.show_settings);
+        let (settings, _issues) = Settings::from_json(r#"{"startup":{"show_settings":false}}"#);
+        assert!(!settings.startup.show_settings);
     }
 }
