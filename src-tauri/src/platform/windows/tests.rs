@@ -15,7 +15,7 @@ use base64::Engine as _;
 use keystage_core::keys::vk;
 use keystage_core::InputEvent;
 use windows::core::w;
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
@@ -23,8 +23,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, RegisterClassExW,
-    SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_SHOWNOACTIVATE, WNDCLASSEXW, WS_EX_APPWINDOW,
-    WS_EX_TOPMOST, WS_POPUP,
+    SetLayeredWindowAttributes, SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, LWA_ALPHA,
+    SW_SHOWNOACTIVATE, WNDCLASSEXW, WS_EX_APPWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 use super::super::display::{OVERLAY_EX_STYLE_OFF, OVERLAY_EX_STYLE_ON};
@@ -184,9 +184,15 @@ fn overlay_guard_keeps_the_overlay_styles() {
         .expect("thread");
         assert!(matches!(other, Err(PlatformError::WrongThread(_))));
 
-        // The real overlay is visible whenever it is put on top. Windows
-        // (unlike Wine) does not mark a never-shown window topmost, which is
-        // what this test window was until here (windows-latest, 2026-10-01).
+        // The real overlay is a displayed window whenever it is put on top.
+        // This test window is layered (the guard forces WS_EX_LAYERED), and
+        // "the layered window will not become visible until the
+        // SetLayeredWindowAttributes or UpdateLayeredWindow function has been
+        // called" (Layered Windows, learn.microsoft.com). Wine marked the
+        // undisplayed window topmost anyway; windows-latest did not
+        // (2026-10-01), so give it attributes and show it, as WebView2 does
+        // for the real overlay.
+        let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
         let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         window_style::reassert_topmost(hwnd).expect("topmost");
         assert_ne!(ex_style(hwnd) & WS_EX_TOPMOST.0, 0);
