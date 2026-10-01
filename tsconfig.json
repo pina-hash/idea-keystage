@@ -20,6 +20,12 @@
 			"$data/*": ["./data/*"]
 		}
 	},
-	"include": ["src/**/*.ts", "src/**/*.svelte", "tests/unit/**/*.ts", "vite.config.ts", "data/**/*.json"],
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.svelte",
+		"tests/unit/**/*.ts",
+		"vite.config.ts",
+		"data/**/*.json"
+	],
 	"exclude": ["node_modules", "dist", "src-tauri", "target"]
 }
