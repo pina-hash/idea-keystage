@@ -67,6 +67,9 @@ pub struct Live {
     pub paused: bool,
     pub keyboard_visible: bool,
     pub view: PipelineView,
+    /// The pipeline gave up after repeated internal errors: nothing is
+    /// shown until the app is started again.
+    pub stopped: bool,
 }
 
 impl Default for Live {
@@ -75,6 +78,7 @@ impl Default for Live {
             paused: false,
             keyboard_visible: true,
             view: PipelineView::default(),
+            stopped: false,
         }
     }
 }
@@ -198,12 +202,12 @@ pub fn short_timecode(tc: &str) -> &str {
 /// The tray menu's first (disabled) line: state, profile, recording.
 pub fn tray_status_line(live: &Live, recording: Option<&RecordingState>) -> String {
     let mut parts: Vec<String> = Vec::with_capacity(3);
-    parts.push(
-        live.reason()
-            .map(Reason::words)
-            .unwrap_or("Active")
-            .to_string(),
-    );
+    let state = if live.stopped {
+        "Stopped after an error"
+    } else {
+        live.reason().map(Reason::words).unwrap_or("Active")
+    };
+    parts.push(state.to_string());
     if let Some(p) = &live.view.profile {
         parts.push(p.name.clone());
     }
@@ -382,6 +386,14 @@ mod tests {
         live.view.profile = Some(profile("SolidWorks"));
         assert_eq!(tray_status_line(&live, None), "Active \u{b7} SolidWorks");
         assert_eq!(tray_glyph(&live, None), TrayGlyph::Normal);
+        let stopped = Live {
+            stopped: true,
+            ..live.clone()
+        };
+        assert_eq!(
+            tray_status_line(&stopped, None),
+            "Stopped after an error \u{b7} SolidWorks"
+        );
         let r = rec(true, false);
         assert_eq!(
             tray_status_line(&live, Some(&r)),

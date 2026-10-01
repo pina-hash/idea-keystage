@@ -61,6 +61,9 @@ const KEYBOARD_MOUSE_W: f64 = 4.0;
 const MOUSE_HEIGHT_PX: f64 = 160.0;
 const MOUSE_ASPECT: f64 = 0.64;
 const MOUSE_BLEED_PX: f64 = 16.0;
+/// Glow margin on every side of the keyboard drawing, in key units
+/// (`KEYBOARD_BLEED_U` in `src/lib/renderer/metrics.ts`).
+const KEYBOARD_BLEED_U: f64 = 0.45;
 
 /// Rounds up to an even number in 2..=8192.
 pub fn even_ceil(n: f64) -> u32 {
@@ -98,9 +101,10 @@ pub fn obs_source_size(route: Route, config: &OverlayConfig, monitor: (u32, u32)
             let unit = keyboard_unit_px(k.size) * s;
             let (fw, fh) = footprint(k.layout);
             let w = fw + if k.mouse { KEYBOARD_MOUSE_W } else { 0.0 };
+            let bleed = KEYBOARD_BLEED_U * unit;
             (
-                even_ceil(w * unit + k.offset_x.abs() * s),
-                even_ceil(fh * unit + k.offset_y.abs() * s),
+                even_ceil(w * unit + 2.0 * bleed + k.offset_x.abs() * s),
+                even_ceil(fh * unit + 2.0 * bleed + k.offset_y.abs() * s),
             )
         }
         Route::Mouse => {
@@ -131,7 +135,8 @@ mod tests {
 
     #[test]
     fn keyboard_matches_the_visual_box() {
-        // visuals notes: full layout plus the mouse at size m is 1046 x 286.
+        // Full layout plus the mouse at size m is 1045 x 285 px, plus the
+        // 0.45u glow bleed on every side (matches obsSourceSize in sizes.ts).
         let mut c = OverlayConfig::default();
         c.keyboard.offset_x = 0.0;
         c.keyboard.offset_y = 0.0;
@@ -140,12 +145,12 @@ mod tests {
         c.keyboard.size = KeyboardSize::M;
         assert_eq!(
             obs_source_size(Route::Keyboard, &c, (1920, 1080)),
-            (1046, 286)
+            (1080, 320)
         );
         c.scale = 2.0;
         assert_eq!(
             obs_source_size(Route::Keyboard, &c, (1920, 1080)),
-            (2090, 570)
+            (2160, 640)
         );
     }
 

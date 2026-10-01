@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { showWaitingCard, waitingText } from './status';
+import { drawsPieces, showWaitingCard, waitingText } from './status';
 
 describe('connection card', () => {
 	it('never shows inside OBS unless status=1, and never once live', () => {
@@ -15,6 +15,15 @@ describe('connection card', () => {
 		expect(showWaitingCard({ ...base, connection: 'live' })).toBe(false);
 		expect(showWaitingCard({ ...base, transport: 'tauri' })).toBe(false);
 		expect(showWaitingCard({ ...base, transport: 'demo' })).toBe(false);
+	});
+
+	it('draws pieces on a WebSocket page only while live', () => {
+		for (const c of ['idle', 'connecting', 'open', 'retrying', 'failed'] as const) {
+			expect(drawsPieces({ connection: c, transport: 'ws' })).toBe(false);
+			expect(drawsPieces({ connection: c, transport: 'tauri' })).toBe(true);
+			expect(drawsPieces({ connection: c, transport: 'demo' })).toBe(true);
+		}
+		expect(drawsPieces({ connection: 'live', transport: 'ws' })).toBe(true);
 	});
 
 	it('names the address it is trying, in plain words', () => {

@@ -2,7 +2,8 @@
  * When the overlay page shows its connection card.
  *
  * Inside OBS (window.obsstudio exists) a source that is not connected is
- * fully transparent, so a status banner is never recorded, unless the URL
+ * fully transparent (no pieces, see drawsPieces, and no card), so a status
+ * banner or a stale keyboard is never recorded, unless the URL
  * asks for status=1. Host A and the settings preview never show the card
  * (they are not WebSocket pages). The demo never needs it. In an ordinary
  * browser the card shows until the first hello arrives, after a short grace
@@ -16,6 +17,20 @@ export interface CardInput {
 	transport: TransportKind;
 	inObs: boolean;
 	status: boolean;
+}
+
+/**
+ * Whether the page draws its pieces (keyboard, mouse, callouts, cursor).
+ *
+ * A WebSocket page draws only while live: before the first hello it has no
+ * user config yet (it would draw the built-in defaults, then jump), and after
+ * the app quits or restarts its last config is stale. So a disconnected OBS
+ * source is fully transparent (ARCHITECTURE.md section 6), and in a browser
+ * the waiting card shows over an empty stage. Host A, the settings preview
+ * and the demo are not WebSocket pages and always draw.
+ */
+export function drawsPieces(i: Pick<CardInput, 'connection' | 'transport'>): boolean {
+	return i.transport !== 'ws' || i.connection === 'live';
 }
 
 export function showWaitingCard(i: CardInput): boolean {

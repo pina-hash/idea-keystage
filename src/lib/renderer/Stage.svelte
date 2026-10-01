@@ -18,7 +18,7 @@
 	import type { RendererStore } from './store.svelte';
 	import { resolveTheme } from '../themes/themes';
 	import { CALLOUT_UNIT_PX, KEYBOARD_UNIT_PX, MOUSE_DIAGRAM } from './metrics';
-	import { FONT_STACKS, indicatorsFor, visiblePieces } from './pieces';
+	import { FONT_STACKS, NO_PIECES, indicatorsFor, visiblePieces } from './pieces';
 	import { anchorStyle, calloutsOffsetY, type Size } from './layout';
 	import { keyboardDrawingSize, mouseDrawingSize } from './sizes';
 	import Callouts from './Callouts.svelte';
@@ -34,16 +34,23 @@
 		zoom?: number;
 		/** Width over height of the monitor the cursor positions refer to. */
 		aspect?: number;
+		/**
+		 * False draws no pieces, only `children` (a WebSocket page that is not
+		 * live: its config is the default or stale). Default true.
+		 */
+		live?: boolean;
 		/** Drawn last, inside the stage (the overlay page's connection card). */
 		children?: Snippet;
 	}
 
-	let { store, host, zoom = 1, aspect, children }: Props = $props();
+	let { store, host, zoom = 1, aspect, live = true, children }: Props = $props();
 
 	const config = $derived(store.config);
 	const scale = $derived(Math.max(0.05, config.scale * (zoom > 0 ? zoom : 1)));
 	const theme = $derived(resolveTheme(config));
-	const pieces = $derived(visiblePieces(store.route, config, store.appState, host));
+	const pieces = $derived(
+		live ? visiblePieces(store.route, config, store.appState, host) : { ...NO_PIECES }
+	);
 	const indicators = $derived(pieces.indicators ? indicatorsFor(config, store.appState) : []);
 	const unit = $derived(CALLOUT_UNIT_PX[config.callouts.size] * scale);
 	const kbUnit = $derived(KEYBOARD_UNIT_PX[config.keyboard.size] * scale);

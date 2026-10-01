@@ -19,7 +19,7 @@
  * app and nowhere else.
  */
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
-import { listen as tauriListen } from '@tauri-apps/api/event';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { open as dialogOpen, save as dialogSave } from '@tauri-apps/plugin-dialog';
 import { openUrl as openerOpenUrl } from '@tauri-apps/plugin-opener';
@@ -356,12 +356,24 @@ export function hasTauriRuntime(w: unknown = globalThis): boolean {
 	return typeof w === 'object' && w !== null && '__TAURI_INTERNALS__' in w;
 }
 
-/** The app's backend: Tauri commands, events and plugins. */
+/**
+ * The app's backend: Tauri commands, events and plugins.
+ *
+ * Events are heard on THIS window only (target `WebviewWindow { label:
+ * 'settings' }`), never with the `@tauri-apps/api/event` default target
+ * `Any`: Tauri hands an emit to every `Any` listener whatever the emitter's
+ * filter says, so a global listener would defeat the shell's per-window
+ * filter (`wants_overlay_event`: the settings preview gets
+ * `keystage://overlay` only while the window can be seen). A plain `emit`
+ * (no filter, such as `keystage://status`) still reaches a window-scoped
+ * listener.
+ */
 export function tauriBackend(): Backend {
 	return {
 		kind: 'tauri',
 		invoke: (cmd, args) => tauriInvoke(cmd, args),
-		listen: async (event, handler) => tauriListen(event, (e) => handler(e.payload)),
+		listen: async (event, handler) =>
+			getCurrentWebviewWindow().listen(event, (e) => handler(e.payload)),
 		copyText: (text) => writeText(text),
 		openUrl: (url) => openerOpenUrl(url),
 		pickOpenFile: async ({ title, filters }) => {

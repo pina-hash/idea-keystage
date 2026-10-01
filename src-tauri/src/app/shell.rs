@@ -51,6 +51,10 @@ pub type App = tauri::AppHandle<Wry>;
 pub const OVERLAY_EVENT: &str = "keystage://overlay";
 /// The event the settings window listens to for `Status`.
 pub const STATUS_EVENT: &str = "keystage://status";
+/// The event that tells the settings window the stored settings changed
+/// (tray, hotkey, import, reset or its own save). The window reads them
+/// again with `get_settings`; the payload leaves the password blob out.
+pub const SETTINGS_EVENT: &str = "keystage://settings";
 /// The argument the autostart entry passes: start in the tray.
 pub const AUTOSTART_ARG: &str = "--autostart";
 /// How long UI Automation may take to subscribe after start before its
@@ -59,6 +63,11 @@ pub const UIA_GRACE: Duration = Duration::from_secs(5);
 /// The notice while UI Automation password detection does not run. The
 /// pipeline masks typing in every profile meanwhile (`pipeline::Core`).
 pub const UIA_NOTICE: &str = "Password detection for browsers and modern apps is unavailable, so typing is masked in every profile. Restart IDEA Keystage to try again.";
+
+/// The notice after the pipeline recovered from an internal error.
+pub const PIPELINE_RECOVERED_NOTICE: &str = "IDEA Keystage recovered from an internal error and cleared the keys on screen. If keys or clicks stop showing, quit IDEA Keystage from the tray and start it again.";
+/// The notice after the pipeline gave up (`pipeline::MAX_RECOVERIES`).
+pub const PIPELINE_STOPPED_NOTICE: &str = "IDEA Keystage stopped showing keys and clicks after repeated internal errors. Quit it from the tray and start it again.";
 
 /// The password detection notice: shown while the watcher runs without UI
 /// Automation, once the start grace period is over.
@@ -113,6 +122,14 @@ impl Paths {
             _ => self.default_sessions.clone(),
         }
     }
+}
+
+/// The `keystage://settings` payload: the settings without the stored
+/// password blob (the window reads them again with `get_settings` anyway).
+pub fn settings_event_payload(settings: &Settings) -> Settings {
+    let mut out = settings.clone();
+    out.obs.password_dpapi = None;
+    out
 }
 
 /// Should the Tauri event go to this webview? Listeners registered with no
@@ -200,6 +217,16 @@ impl Sink for ShellSink {
         self.shell.live.lock().view = view;
         self.shell.publish_state();
         self.shell.refresh_soon();
+    }
+
+    fn failed(&mut self, stopped: bool) {
+        let text = if stopped {
+            PIPELINE_STOPPED_NOTICE
+        } else {
+            PIPELINE_RECOVERED_NOTICE
+        };
+        self.shell.live.lock().stopped = stopped;
+        self.shell.set_notice("pipeline", Some(text.to_string()));
     }
 
     fn foreground_changed(&mut self) {
@@ -341,9 +368,7 @@ impl Shell {
                     return;
                 };
                 match started.input {
-                    Ok(h) => {
-                        let _ = s.input.set(h);
-                    }
+                    Ok(h) => s.adopt_input(h),
                     Err(e) => s.set_notice(
                         "input",
                         Some(format!(
@@ -479,7 +504,21 @@ impl Shell {
         let next = Arc::new(next);
         *self.settings.write() = next.clone();
         self.apply_changes(&old, &next);
+        self.announce_settings(&next);
         Ok(next)
+    }
+
+    /// Tells the settings window that the stored settings changed, so a
+    /// change made from the tray, a hotkey, an import or a reset shows at
+    /// once. Only that window is addressed.
+    fn announce_settings(&self, next: &Settings) {
+        let target = EventTarget::webview_window(settings_window::LABEL);
+        if let Err(e) = self
+            .app
+            .emit_to(target, SETTINGS_EVENT, settings_event_payload(next))
+        {
+            tracing::warn!(error = %e, "settings change not announced");
+        }
     }
 
     fn apply_changes(&self, old: &Settings, new: &Arc<Settings>) {
@@ -828,6 +867,23 @@ impl Shell {
 
     /* --- Live switches ------------------------------------------------------ */
 
+    /// Keeps the input handle the pipeline thread started. A pause asked
+    /// for before it arrived (a hotkey or the window at a busy logon, while
+    /// the watcher was still starting) removes the hooks now (ARCHITECTURE.md
+    /// section 8, rule 2). The live lock orders this against `set_paused`,
+    /// so the hooks always end up as the last pause or resume left them.
+    fn adopt_input(&self, h: InputHandle) {
+        let live = self.live.lock();
+        if self.input.set(h).is_err() || !live.paused {
+            return;
+        }
+        if let Some(h) = self.input.get() {
+            if let Err(e) = h.pause() {
+                tracing::warn!(error = %e, "hooks were not removed for the pause");
+            }
+        }
+    }
+
     pub fn set_paused(&self, paused: bool) {
         {
             let mut l = self.live.lock();
@@ -835,11 +891,13 @@ impl Shell {
                 return;
             }
             l.paused = paused;
-        }
-        if let Some(h) = self.input.get() {
-            let r = if paused { h.pause() } else { h.resume() };
-            if let Err(e) = r {
-                tracing::warn!(error = %e, paused, "hooks did not change");
+            // Under the lock (pause and resume only post to the hook
+            // thread): see `adopt_input`.
+            if let Some(h) = self.input.get() {
+                let r = if paused { h.pause() } else { h.resume() };
+                if let Err(e) = r {
+                    tracing::warn!(error = %e, paused, "hooks did not change");
+                }
             }
         }
         if let Some(p) = self.pipeline.get() {
@@ -1147,6 +1205,28 @@ mod tests {
             true,
             true
         ));
+    }
+
+    #[test]
+    fn the_settings_event_matches_the_window_and_leaves_the_password_out() {
+        const IPC_TS: &str = include_str!("../../../src/settings/ipc.ts");
+        for (name, value) in [
+            ("SETTINGS_EVENT", SETTINGS_EVENT),
+            ("STATUS_EVENT", STATUS_EVENT),
+        ] {
+            assert!(
+                IPC_TS.contains(&format!("export const {name} = '{value}';")),
+                "{name} differs from src/settings/ipc.ts"
+            );
+        }
+        let mut s = Settings::default();
+        s.obs.password_dpapi = Some("QUJD".into());
+        s.obs.port = 4460;
+        let out = settings_event_payload(&s);
+        assert_eq!(out.obs.password_dpapi, None);
+        assert_eq!(out.obs.port, 4460);
+        let json = serde_json::to_string(&out).expect("payload");
+        assert!(!json.contains("QUJD"));
     }
 
     #[test]

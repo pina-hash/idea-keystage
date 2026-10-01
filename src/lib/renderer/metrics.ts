@@ -60,6 +60,14 @@ export const KEYBOARD_FOOTPRINTS: Readonly<Record<KeyboardLayout, { w: number; h
 /** Extra width (key units) when the mouse diagram sits beside the keyboard. */
 export const KEYBOARD_MOUSE_W = 4;
 
+/**
+ * Room (key units) kept on every side of the keyboard drawing in its OBS
+ * source for the housing's glow and shade, which reach past the footprint:
+ * KeyboardVisual's drop-shadow blur of 0.3u is a Gaussian of 0.15u standard
+ * deviation, visible to about three of those.
+ */
+export const KEYBOARD_BLEED_U = 0.45;
+
 /** The standalone mouse diagram (route `mouse`), px at scale 1. */
 export const MOUSE_DIAGRAM = {
 	heightPx: 160,

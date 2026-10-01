@@ -3,7 +3,9 @@ import { defaultOverlayConfig } from '../protocol';
 import {
 	CALLOUT_GEOMETRY,
 	CALLOUT_UNIT_PX,
+	KEYBOARD_BLEED_U,
 	KEYBOARD_FOOTPRINTS,
+	KEYBOARD_MOUSE_W,
 	KEYBOARD_UNIT_PX,
 	calloutHeightU,
 } from './metrics';
@@ -62,9 +64,10 @@ describe('obsSourceSize', () => {
 		c.keyboard.mouse = false;
 		const unit = KEYBOARD_UNIT_PX.m;
 		const fp = KEYBOARD_FOOTPRINTS.full;
+		const bleed = 2 * KEYBOARD_BLEED_U * unit;
 		expect(obsSourceSize('keyboard', c, monitor)).toEqual({
-			width: evenCeil(fp.w * unit),
-			height: evenCeil(fp.h * unit),
+			width: evenCeil(fp.w * unit + bleed),
+			height: evenCeil(fp.h * unit + bleed),
 		});
 		const withMouse = obsSourceSize(
 			'keyboard',
@@ -78,6 +81,20 @@ describe('obsSourceSize', () => {
 			monitor
 		);
 		expect(left.width).toBeLessThan(fp.w * unit);
+	});
+
+	it('keyboard keeps room for the glow on the sides away from the anchor', () => {
+		// The defaults: full layout, mouse beside it, size m, offsets 32.
+		const c = defaultOverlayConfig();
+		const unit = KEYBOARD_UNIT_PX[c.keyboard.size];
+		const glow = 0.3 * unit; // KeyboardVisual's drop-shadow blur radius
+		const fp = KEYBOARD_FOOTPRINTS[c.keyboard.layout];
+		const w = (fp.w + (c.keyboard.mouse ? KEYBOARD_MOUSE_W : 0)) * unit;
+		const s = obsSourceSize('keyboard', c, monitor);
+		expect(s.width - w - Math.abs(c.keyboard.offset_x)).toBeGreaterThanOrEqual(2 * glow);
+		expect(s.height - fp.h * unit - Math.abs(c.keyboard.offset_y)).toBeGreaterThanOrEqual(2 * glow);
+		const big = obsSourceSize('keyboard', { ...c, scale: 2 }, monitor);
+		expect(big.width - 2 * w - 2 * Math.abs(c.keyboard.offset_x)).toBeGreaterThanOrEqual(4 * glow);
 	});
 
 	it('mouse is the diagram box', () => {

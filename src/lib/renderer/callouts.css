@@ -538,17 +538,32 @@
 /* --------------------------------------------------------------------------
    The caption line: the command name, and a small mono context label after
    an etched divider.
+
+   The command name is what the viewer needs, so it keeps its full width and
+   truncates only when it alone is wider than the plate. The context takes
+   what is left: it shrinks with an ellipsis, and when less than 1.2u is left
+   it wraps onto a second line that the one-line box clips, so it disappears
+   instead of showing a divider and a dot. The line stays one line high, the
+   height metrics.ts (captionLineU) and the OBS source sizes count on.
    -------------------------------------------------------------------------- */
 .ks-caption {
 	display: flex;
+	flex-wrap: wrap;
+	align-content: flex-start;
 	align-items: baseline;
-	gap: calc(var(--ks-u) * 0.22);
+	column-gap: calc(var(--ks-u) * 0.22);
+	/* Pushes a wrapped context well below the clip edge. */
+	row-gap: var(--ks-u);
 	max-width: 100%;
 	min-width: 0;
+	/* One caption line: font-size 0.46u times line-height 1.17. */
+	height: calc(var(--ks-u) * 0.46 * 1.17);
+	overflow: hidden;
 	padding: 0 calc(var(--ks-u) * 0.04);
 }
 .ks-caption-text {
-	flex: 0 1 auto;
+	flex: 0 0 auto;
+	max-width: 100%;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
@@ -562,8 +577,11 @@
 }
 .ks-caption-context {
 	position: relative;
-	flex: 0 3 auto;
-	min-width: calc(var(--ks-u) * 1.2);
+	box-sizing: border-box;
+	/* Placed on the first line when 1.2u is left, then grows to its text. */
+	flex: 1 1 calc(var(--ks-u) * 1.2);
+	max-width: max-content;
+	min-width: 0;
 	padding-left: calc(var(--ks-u) * 0.22);
 	overflow: hidden;
 	text-overflow: ellipsis;

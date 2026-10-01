@@ -456,11 +456,20 @@ impl PasswordGate {
 
     /// Whether the input hold must start a new epoch after `step`, given
     /// the mode published so far, and how the epoch being left ends (only
-    /// a `Hold` epoch needs an outcome). `None`: nothing to publish.
+    /// a `Hold` epoch needs an outcome). `suppressed` is what
+    /// `ContextEvent::Password { active }` says once this step is applied
+    /// ([`Self::app_suppressed`]); the watcher sends it before it publishes
+    /// the transition. A `Hold` epoch that ends while the app suppresses is
+    /// [`Outcome::Drop`] (modifier and Caps Lock records still reach the
+    /// suppressed processor, for its bookkeeping); one that ends while it
+    /// does not, by a newer focus change or the loss of UI Automation, is
+    /// [`Outcome::Discard`] (nothing reaches it). `None`: nothing to
+    /// publish.
     pub fn hold_transition(
         &self,
         published: HoldMode,
         step: &GateStep,
+        suppressed: bool,
     ) -> Option<(HoldMode, Outcome)> {
         let mode = self.mode();
         let restart = step.new_focus && mode == HoldMode::Hold;
@@ -469,8 +478,10 @@ impl PasswordGate {
         }
         let outcome = if published == HoldMode::Hold && mode == HoldMode::Open && step.release {
             Outcome::Release
-        } else {
+        } else if suppressed {
             Outcome::Drop
+        } else {
+            Outcome::Discard
         };
         Some((mode, outcome))
     }
@@ -687,129 +698,273 @@ mod tests {
     fn hold_transitions() {
         use HoldMode::*;
         let mut g = running_gate();
-        assert_eq!(g.hold_transition(Open, &GateStep::default()), None);
+        assert_eq!(g.hold_transition(Open, &GateStep::default(), false), None);
         let step = g.on_focus_changed();
-        assert_eq!(g.hold_transition(Open, &step), Some((Hold, Outcome::Drop)));
-        // A newer focus while holding: a new epoch, the old one dropped.
+        assert_eq!(
+            g.hold_transition(Open, &step, false),
+            Some((Hold, Outcome::Discard))
+        );
+        // A newer focus while holding: a new epoch, the old one discarded
+        // (the app is not suppressing, so not even modifiers pass) ...
         let step = g.on_focus_changed();
-        assert_eq!(g.hold_transition(Hold, &step), Some((Hold, Outcome::Drop)));
+        assert_eq!(
+            g.hold_transition(Hold, &step, false),
+            Some((Hold, Outcome::Discard))
+        );
+        // ... or dropped while it still suppresses (from a password field).
+        assert_eq!(
+            g.hold_transition(Hold, &step, true),
+            Some((Hold, Outcome::Drop))
+        );
         let r = g.awaiting().expect("awaiting");
         let step = g.on_uia_answer(r, Verdict::NotPassword);
         assert_eq!(
-            g.hold_transition(Hold, &step),
+            g.hold_transition(Hold, &step, false),
             Some((Open, Outcome::Release))
         );
         // "Not a password" from the UI Automation answer, but the Win32
-        // check says password: dropped.
+        // check says password: dropped, with the app suppressing.
         let step = g.on_focus_changed();
-        assert_eq!(g.hold_transition(Open, &step), Some((Hold, Outcome::Drop)));
-        g.on_win32(Verdict::Password);
         assert_eq!(
-            g.hold_transition(Hold, &GateStep::default()),
+            g.hold_transition(Open, &step, false),
+            Some((Hold, Outcome::Discard))
+        );
+        g.on_win32(Verdict::Password);
+        assert!(g.app_suppressed(false));
+        assert_eq!(
+            g.hold_transition(Hold, &GateStep::default(), true),
             Some((Drop, Outcome::Drop))
         );
         let r = g.awaiting().expect("UI Automation is still asked");
         let step = g.on_uia_answer(r, Verdict::NotPassword);
-        assert_eq!(g.hold_transition(Drop, &step), None, "still Drop");
+        assert_eq!(g.hold_transition(Drop, &step, true), None, "still Drop");
+        // UI Automation lost while holding: discarded.
+        g.on_win32(Verdict::NotPassword);
+        let step = g.on_focus_changed();
+        assert_eq!(g.mode(), Hold);
+        let step2 = g.on_uia_unavailable();
+        assert!(step.new_focus && !step2.release);
+        assert_eq!(
+            g.hold_transition(Hold, &step2, false),
+            Some((Open, Outcome::Discard))
+        );
     }
 
-    /// PRIV-1 end to end on the pure parts: the watcher's gate decisions,
-    /// the shared hold word the hook stamps records with, and the
-    /// receiver's filter. A password manager types Tab and the password
-    /// 10 ms per key; UI Automation's "password" verdict comes 50 ms after
-    /// the focus moved. Nothing of the password may come out, and the app
-    /// is told to suppress.
-    #[test]
-    fn auto_typed_password_before_a_late_verdict_shows_nothing() {
+    /// The watcher's gate, the shared hold word the hooks stamp records
+    /// with, the receiver's filter and a real processor, wired the way the
+    /// watcher (`apply`: the `Password` event before the hold changes) and
+    /// the app shell (a change that shows less applies before the input
+    /// drained with it) wire them.
+    mod end_to_end {
+        use super::*;
         use crate::platform::hold::{HoldFilter, PasswordHold};
-        use keystage_core::{InputEvent, KeyInput, PhysKey};
+        use keystage_core::keys::vk;
+        use keystage_core::{
+            DisplayEvent, DisplayRules, InputEvent, KeyInput, NoLegends, PhysKey, Processor,
+            Suppress, TypingMode,
+        };
 
         struct World {
             gate: PasswordGate,
             hold: PasswordHold,
             published: HoldMode,
+            /// What `ContextEvent::Password { active }` said last.
+            sent: bool,
             filter: HoldFilter,
-            out: Vec<InputEvent>,
-            suppressed: bool,
+            processor: Processor,
+            shown: Vec<DisplayEvent>,
+            now: u64,
         }
+
         impl World {
+            /// SolidWorks mode on: bare keys and typed text are shown.
+            fn new() -> World {
+                let rules = DisplayRules {
+                    typing: TypingMode::All,
+                    ..DisplayRules::default()
+                };
+                World {
+                    gate: running_gate(),
+                    hold: PasswordHold::new(),
+                    published: HoldMode::Open,
+                    sent: false,
+                    filter: HoldFilter::new(),
+                    processor: Processor::new(rules),
+                    shown: Vec::new(),
+                    now: 1_000,
+                }
+            }
+
             fn apply(&mut self, step: GateStep) {
-                if let Some((mode, outcome)) = self.gate.hold_transition(self.published, &step) {
-                    self.hold.publish(mode, outcome);
+                let active = self.gate.app_suppressed(self.sent);
+                if active != self.sent {
+                    self.sent = active;
+                    let evs = self
+                        .processor
+                        .set_suppressed(active.then_some(Suppress::Password));
+                    self.shown.extend(evs);
+                }
+                if let Some((mode, outcome)) =
+                    self.gate.hold_transition(self.published, &step, active)
+                {
+                    self.hold.publish(mode, outcome, step.new_focus);
                     self.published = mode;
                 }
-                self.suppressed = self.gate.active();
-                self.filter.flush(&self.hold, &mut self.out);
+                self.drain();
             }
-            fn key(&mut self, code: u16, scan: u16, t: u64) {
-                for down in [true, false] {
-                    let ev = InputEvent::Key(KeyInput {
-                        vk: code,
-                        phys: PhysKey::new(scan, false),
-                        down,
-                        injected: true,
-                        t_ms: t + u64::from(!down),
-                    });
-                    let stamp = self.hold.stamp();
-                    self.filter.push(&self.hold, stamp, ev, &mut self.out);
+
+            /// `EVENT_OBJECT_FOCUS` for a new element; returns the request.
+            fn focus(&mut self) -> u32 {
+                let step = self.gate.on_focus_changed();
+                let request = step.request.expect("request");
+                self.apply(step);
+                request
+            }
+
+            fn verdict(&mut self, request: u32, v: Verdict) {
+                let step = self.gate.on_uia_answer(request, v);
+                self.apply(step);
+            }
+
+            fn drain(&mut self) {
+                let mut out = Vec::new();
+                self.filter.flush(&self.hold, self.now, &mut out);
+                self.feed(out);
+            }
+
+            fn feed(&mut self, evs: Vec<InputEvent>) {
+                for ev in evs {
+                    let shown = self.processor.handle(&ev, &NoLegends);
+                    self.shown.extend(shown);
                 }
             }
-        }
-        let mut w = World {
-            gate: running_gate(),
-            hold: PasswordHold::new(),
-            published: HoldMode::Open,
-            filter: HoldFilter::new(),
-            out: Vec::new(),
-            suppressed: false,
-        };
-        // User name, then Tab (shown).
-        w.key(0x55, 0x16, 0);
-        w.key(0x09, 0x0F, 10);
-        // EVENT_OBJECT_FOCUS for the password box arrives.
-        let step = w.gate.on_focus_changed();
-        let request = step.request.expect("request");
-        w.apply(step);
-        assert!(!w.suppressed, "held, not suppressed");
-        // The password, 10 ms per key, before the verdict.
-        for (i, (code, scan)) in [(0x53, 0x1F), (0x33, 0x04), (0x43, 0x2E), (0x52, 0x13)]
-            .into_iter()
-            .enumerate()
-        {
-            w.key(code, scan, 20 + 10 * i as u64);
-        }
-        // A late answer for the previous focus changes nothing.
-        let stale = w
-            .gate
-            .on_uia_answer(request.wrapping_sub(1), Verdict::NotPassword);
-        w.apply(stale);
-        // The verdict for the password box.
-        let step = w.gate.on_uia_answer(request, Verdict::Password);
-        w.apply(step);
-        assert!(w.suppressed);
-        // Enter submits (dropped too).
-        w.key(0x0D, 0x1C, 80);
-        let shown: Vec<u16> = w
-            .out
-            .iter()
-            .filter_map(|e| match e {
-                InputEvent::Key(k) if k.down => Some(k.vk),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(shown, vec![0x55, 0x09], "only the user name key and Tab");
-        assert!(!w.filter.is_holding());
 
-        // The same with "unknown": suppressed as well, nothing shown.
-        let before = w.out.len();
-        let step = w.gate.on_focus_changed();
-        let request = step.request.expect("request");
-        w.apply(step);
-        w.key(0x53, 0x1F, 200);
-        let step = w.gate.on_uia_answer(request, Verdict::Unknown);
-        w.apply(step);
-        assert!(w.suppressed, "unknown after a focus change suppresses");
-        assert_eq!(w.out.len(), before);
+            /// A key event 10 ms after the previous one, stamped by the hook.
+            fn key(&mut self, code: u16, scan: u16, down: bool) {
+                self.now += 10;
+                let ev = InputEvent::Key(KeyInput {
+                    vk: code,
+                    phys: PhysKey::new(scan, false),
+                    down,
+                    injected: true,
+                    t_ms: self.now,
+                });
+                let stamp = self.hold.stamp();
+                let mut out = Vec::new();
+                self.filter.push(&self.hold, stamp, ev, self.now, &mut out);
+                self.feed(out);
+            }
+
+            fn tap(&mut self, code: u16, scan: u16) {
+                self.key(code, scan, true);
+                self.key(code, scan, false);
+            }
+
+            /// "Xk7": Shift held for the X, Caps Lock pressed twice.
+            fn type_secret(&mut self) {
+                self.key(vk::LSHIFT, 0x2A, true);
+                self.tap(0x58, 0x2D);
+                self.key(vk::LSHIFT, 0x2A, false);
+                self.tap(vk::CAPITAL, 0x3A);
+                self.tap(0x4B, 0x25);
+                self.tap(vk::CAPITAL, 0x3A);
+                self.tap(0x37, 0x08);
+            }
+
+            /// Key presses and callouts shown from `from` on.
+            fn revealed(&self, from: usize) -> Vec<&DisplayEvent> {
+                self.shown
+                    .get(from..)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|e| match e {
+                        DisplayEvent::Key { down, key, .. } => *down || key.as_str() == "Shift",
+                        DisplayEvent::Callout(_) => true,
+                        _ => false,
+                    })
+                    .collect()
+            }
+        }
+
+        /// PRIV-1 and PRIV-R3-1: a password manager types the user name,
+        /// Tab and the password 10 ms per key. The watcher hears of the
+        /// focus change only after the first password keys were hooked
+        /// (stamped open), and UI Automation's "password" verdict comes
+        /// later still. Nothing of the password comes out: no key, no
+        /// Shift, no Caps Lock, no callout.
+        #[test]
+        fn auto_typed_password_shows_nothing_even_before_the_focus_event() {
+            let mut w = World::new();
+            w.tap(0x55, 0x16);
+            w.key(vk::TAB, 0x0F, true);
+            let shown_before = w.shown.len();
+            assert!(!w.revealed(0).is_empty(), "the user name key and Tab");
+            w.key(vk::TAB, 0x0F, false);
+            // Hooked before the browser moved the focus.
+            w.type_secret();
+            let request = w.focus();
+            assert!(!w.sent, "held, not suppressed");
+            // More of it after the focus event, then the late verdict.
+            w.tap(0x51, 0x10);
+            w.verdict(request, Verdict::Password);
+            assert!(w.sent);
+            w.tap(vk::RETURN, 0x1C);
+            assert_eq!(w.revealed(shown_before), Vec::<&DisplayEvent>::new());
+            assert!(!w.filter.is_holding());
+            assert!(
+                !w.filter.take_caps_lock_unsynced(),
+                "two toggles: the state is still right"
+            );
+
+            // The same with "unknown": suppressed as well, nothing shown.
+            let before = w.shown.len();
+            let request = w.focus();
+            w.tap(0x53, 0x1F);
+            w.verdict(request, Verdict::Unknown);
+            assert!(w.sent, "unknown after a focus change suppresses");
+            assert_eq!(w.revealed(before), Vec::<&DisplayEvent>::new());
+        }
+
+        /// PRIV-R3-2: Shift, Caps Lock and letters typed while a new focus
+        /// is classified. Neither a "password" verdict nor a newer focus
+        /// change before any verdict may light, sound or call out Shift.
+        #[test]
+        fn modifiers_typed_while_the_focus_is_classified_never_show() {
+            let mut w = World::new();
+            // A password verdict.
+            let request = w.focus();
+            let before = w.shown.len();
+            w.type_secret();
+            assert!(w.shown.len() == before, "all held");
+            w.verdict(request, Verdict::Password);
+            assert_eq!(w.revealed(before), Vec::<&DisplayEvent>::new());
+            // Leave it for an ordinary field.
+            let request = w.focus();
+            w.verdict(request, Verdict::NotPassword);
+            assert!(!w.sent);
+            let before = w.shown.len();
+            w.tap(0x41, 0x1E);
+            assert!(!w.revealed(before).is_empty(), "ordinary typing shows");
+
+            // A newer focus change before any verdict: the app was never
+            // told to suppress, so the held input is discarded whole.
+            let before = w.shown.len();
+            let request = w.focus();
+            w.type_secret();
+            let newer = w.focus();
+            assert_ne!(request, newer);
+            assert!(!w.sent);
+            w.verdict(newer, Verdict::NotPassword);
+            assert_eq!(w.revealed(before), Vec::<&DisplayEvent>::new());
+            assert!(!w.filter.is_holding());
+            assert!(
+                !w.filter.take_caps_lock_unsynced(),
+                "two toggles: the state is still right"
+            );
+            // Typing in the new, ordinary field shows again.
+            w.tap(0x41, 0x1E);
+            assert!(!w.revealed(before).is_empty());
+        }
     }
 
     #[test]

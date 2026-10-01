@@ -32,7 +32,16 @@
 //! The thread wakes when the hooks or the watcher unpark it and at least
 //! every 16 ms to tick the processor and flush a coalesced mouse move. All
 //! the decisions live in [`Core`], which is tested without threads.
+//!
+//! Panics. Each pass runs under [`Guarded`]: a panic in the core or a sink
+//! does not end the thread. The half-updated core is dropped, the hosts
+//! release every key, and a new core is built from what the shell and the
+//! watcher last sent, showing nothing until the watcher reports the
+//! foreground again (fail closed). After [`MAX_RECOVERIES`] the thread
+//! stops showing input for good but keeps draining the hook queue and
+//! still obeys shutdown. The shell turns either into a notice.
 
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle, Thread};
 use std::time::Duration;
@@ -63,6 +72,8 @@ pub const RESYNC_RETRY_MS: u64 = 500;
 /// shows more takes effect: the batch drained before the change was read,
 /// and the next one (see [`Core::pass`]).
 pub const RELAX_AFTER_BATCHES: u8 = 2;
+/// Panics the pipeline rebuilds its core after; the next one stops it.
+pub const MAX_RECOVERIES: u32 = 3;
 
 /// Messages from the shell to the pipeline.
 #[derive(Debug)]
@@ -100,6 +111,9 @@ pub trait Sink {
     fn view(&mut self, view: PipelineView);
     /// The foreground window changed (re-assert the overlay's topmost).
     fn foreground_changed(&mut self);
+    /// A pass panicked. The core was rebuilt (`stopped` false) or the
+    /// pipeline gave up showing input (`stopped` true).
+    fn failed(&mut self, stopped: bool);
 }
 
 /// What the foreground says about privacy.
@@ -547,9 +561,9 @@ impl Core {
                 sink.legends(wire, json);
             }
             ContextEvent::SessionLocked { t_ms } => {
+                self.gate.locked = true;
                 let evs = self.processor.release_all(t_ms);
                 self.out.extend(evs);
-                self.gate.locked = true;
                 self.apply();
             }
             ContextEvent::SessionUnlocked { .. } => {
@@ -683,6 +697,198 @@ impl Core {
     }
 }
 
+/// What the shell and the watcher last sent, recorded as each change is
+/// read and before the core handles it, so a core rebuilt after a panic
+/// starts from it even when the panic hit while that change was handled.
+struct Seen {
+    settings: Arc<Settings>,
+    builtin: Arc<Profile>,
+    legends: Arc<LegendTable>,
+    monitor: Option<MonitorRect>,
+    paused: bool,
+    password: bool,
+    locked: bool,
+    shutdown: bool,
+}
+
+impl Seen {
+    fn of(core: &Core) -> Seen {
+        Seen {
+            settings: core.settings.clone(),
+            builtin: core.builtin.clone(),
+            legends: core.legends.clone(),
+            monitor: None,
+            paused: core.gate.paused,
+            password: core.gate.password,
+            locked: core.gate.locked,
+            shutdown: false,
+        }
+    }
+
+    fn observe(&mut self, change: &Change) {
+        match change {
+            Change::Control(Control::Settings(s)) => self.settings = s.clone(),
+            Change::Control(Control::Paused(p)) => self.paused = *p,
+            Change::Control(Control::Monitor(m)) => self.monitor = *m,
+            Change::Control(Control::Shutdown) => self.shutdown = true,
+            Change::Context(ContextEvent::Password { active }) => self.password = *active,
+            Change::Context(ContextEvent::SessionLocked { .. }) => self.locked = true,
+            Change::Context(ContextEvent::SessionUnlocked { .. }) => self.locked = false,
+            Change::Context(ContextEvent::Layout(t)) => self.legends = t.clone(),
+            // The foreground is read again from the watcher after a rebuild;
+            // password detection is reported on every pass.
+            Change::Context(ContextEvent::Foreground(_) | ContextEvent::Modifiers(_))
+            | Change::PasswordDetection(_) => {}
+        }
+    }
+
+    /// A new core in the state last sent, except the foreground, which
+    /// stays unidentified (nothing shows) until the watcher reports it, and
+    /// password detection, which masks typing until the next pass says it
+    /// runs.
+    fn rebuild(&self, read_modifiers: &mut dyn FnMut() -> Option<ModifierSnapshot>) -> Core {
+        let mut core = Core::new(
+            self.settings.clone(),
+            self.builtin.clone(),
+            self.legends.clone(),
+        );
+        core.gate.paused = self.paused;
+        core.gate.password = self.password;
+        core.gate.locked = self.locked;
+        core.processor.set_monitor(self.monitor);
+        let want = core.wanted();
+        core.push(want);
+        if let Some(snap) = read_modifiers() {
+            core.on_modifiers(&snap);
+        }
+        core.out.clear();
+        core
+    }
+}
+
+/// What the pipeline thread does after a [`Guarded::run`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Flow {
+    /// Keep going.
+    Run,
+    /// A pass panicked and the core was rebuilt: ask the watcher to report
+    /// the foreground again (`WatcherHandle::refresh`).
+    Rebuilt,
+    /// Shut down.
+    Stop,
+}
+
+/// The core behind a panic guard (see the module comment).
+pub struct Guarded {
+    core: Option<Core>,
+    seen: Seen,
+    recoveries: u32,
+}
+
+impl Guarded {
+    pub fn new(core: Core) -> Guarded {
+        Guarded {
+            seen: Seen::of(&core),
+            core: Some(core),
+            recoveries: 0,
+        }
+    }
+
+    /// The running core; `None` once the pipeline gave up.
+    pub fn core(&self) -> Option<&Core> {
+        self.core.as_ref()
+    }
+
+    /// One pass of the thread: `gather` drains the hook queue into `input`
+    /// and returns the state changes (read lazily), then [`Core::pass`] and
+    /// [`Core::on_wake`] run. A panic anywhere in it is caught here.
+    pub fn run<G, I>(
+        &mut self,
+        input: &mut Vec<InputEvent>,
+        gather: G,
+        now: &dyn Fn() -> u64,
+        sink: &mut dyn Sink,
+        read_modifiers: &mut dyn FnMut() -> Option<ModifierSnapshot>,
+    ) -> Flow
+    where
+        G: FnOnce(&mut Vec<InputEvent>) -> I,
+        I: IntoIterator<Item = Change>,
+    {
+        let Guarded { core, seen, .. } = self;
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let changes = gather(&mut *input).into_iter().inspect(|c| seen.observe(c));
+            match core.as_mut() {
+                Some(core) => {
+                    if !core.pass(input, changes, now(), &mut *sink) {
+                        return false;
+                    }
+                    core.on_wake(now(), &mut *sink, &mut *read_modifiers);
+                    true
+                }
+                None => {
+                    // Gave up: the input is dropped, the changes only noted.
+                    input.clear();
+                    changes.for_each(drop);
+                    !seen.shutdown
+                }
+            }
+        }));
+        match result {
+            Ok(true) => Flow::Run,
+            Ok(false) => Flow::Stop,
+            Err(_) => {
+                input.clear();
+                if self.seen.shutdown {
+                    return Flow::Stop;
+                }
+                self.recover(now(), sink, read_modifiers)
+            }
+        }
+    }
+
+    /// After a panic: drop the core, clear the hosts, rebuild or give up,
+    /// tell the sink.
+    fn recover(
+        &mut self,
+        now: u64,
+        sink: &mut dyn Sink,
+        read_modifiers: &mut dyn FnMut() -> Option<ModifierSnapshot>,
+    ) -> Flow {
+        self.core = None;
+        self.recoveries += 1;
+        if self.recoveries <= MAX_RECOVERIES {
+            let seen = &self.seen;
+            self.core = catch_unwind(AssertUnwindSafe(|| seen.rebuild(&mut *read_modifiers))).ok();
+        }
+        let stopped = self.core.is_none();
+        tracing::error!(
+            recoveries = self.recoveries,
+            stopped,
+            "pipeline pass failed, core dropped"
+        );
+        // Nothing stays lit on any host. A sink that panics again changes
+        // nothing here.
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let ev = DisplayEvent::ModifiersReleased { t_ms: now };
+            let json: Arc<str> = Arc::from(ev.to_json());
+            sink.display(&ev, json);
+            sink.failed(stopped);
+        }));
+        if stopped {
+            Flow::Run
+        } else {
+            Flow::Rebuilt
+        }
+    }
+
+    /// How long the thread may sleep.
+    pub fn park_for(&self, now: u64) -> Duration {
+        self.core
+            .as_ref()
+            .map_or(Duration::from_millis(PARK_MS), |c| c.park_for(now))
+    }
+}
+
 /// The handles the pipeline thread started.
 pub struct Started {
     pub input: Result<InputHandle, String>,
@@ -716,7 +922,7 @@ impl PipelineHandle {
 
 /// Starts the pipeline thread. It starts the input hooks and the watcher
 /// itself (they unpark it) and reports them through `on_started`.
-pub fn spawn<S, F>(mut core: Core, mut sink: S, on_started: F) -> std::io::Result<PipelineHandle>
+pub fn spawn<S, F>(core: Core, mut sink: S, on_started: F) -> std::io::Result<PipelineHandle>
 where
     S: Sink + Send + 'static,
     F: FnOnce(Started) + Send + 'static,
@@ -746,27 +952,45 @@ where
             tracing::info!("pipeline running");
             let mut buf: Vec<InputEvent> = Vec::with_capacity(256);
             let mut read = platform::read_modifiers;
+            let mut guarded = Guarded::new(core);
             loop {
-                // The input first, then the state changes (see `Core::pass`).
-                if let Some(r) = receiver.as_mut() {
-                    r.drain_into(&mut buf);
+                let flow = guarded.run(
+                    &mut buf,
+                    |buf| {
+                        // The input first, then the state changes (see
+                        // `Core::pass`).
+                        if let Some(r) = receiver.as_mut() {
+                            r.drain_into(buf);
+                        }
+                        let full = detection.as_ref().is_some_and(WatcherHandle::uia_active);
+                        rx.try_iter()
+                            .map(Change::Control)
+                            .chain(
+                                context
+                                    .iter()
+                                    .flat_map(Receiver::try_iter)
+                                    .map(Change::Context),
+                            )
+                            .chain(std::iter::once(Change::PasswordDetection(full)))
+                    },
+                    &platform::now_ms,
+                    &mut sink,
+                    &mut read,
+                );
+                match flow {
+                    Flow::Run => {}
+                    Flow::Stop => break,
+                    Flow::Rebuilt => {
+                        // The new core shows nothing until the foreground is
+                        // reported again.
+                        if let Some(w) = detection.as_ref() {
+                            if let Err(e) = w.refresh() {
+                                tracing::warn!(error = %e, "watcher refresh failed");
+                            }
+                        }
+                    }
                 }
-                let full = detection.as_ref().is_some_and(WatcherHandle::uia_active);
-                let changes = rx
-                    .try_iter()
-                    .map(Change::Control)
-                    .chain(
-                        context
-                            .iter()
-                            .flat_map(Receiver::try_iter)
-                            .map(Change::Context),
-                    )
-                    .chain(std::iter::once(Change::PasswordDetection(full)));
-                if !core.pass(&mut buf, changes, platform::now_ms(), &mut sink) {
-                    break;
-                }
-                core.on_wake(platform::now_ms(), &mut sink, &mut read);
-                thread::park_timeout(core.park_for(platform::now_ms()));
+                thread::park_timeout(guarded.park_for(platform::now_ms()));
             }
             tracing::info!("pipeline stopped");
         })?;
@@ -790,6 +1014,7 @@ mod tests {
         legends: Vec<String>,
         views: Vec<PipelineView>,
         foreground: usize,
+        failures: Vec<bool>,
     }
 
     impl Sink for Rec {
@@ -804,6 +1029,9 @@ mod tests {
         }
         fn foreground_changed(&mut self) {
             self.foreground += 1;
+        }
+        fn failed(&mut self, stopped: bool) {
+            self.failures.push(stopped);
         }
     }
 
@@ -1488,6 +1716,217 @@ mod tests {
             5100,
         );
         assert!(texts(&r).is_empty());
+    }
+
+    /* --- Panic guard ---------------------------------------------------- */
+
+    /// A sink that panics on its next display event while armed.
+    #[derive(Default)]
+    struct Flaky {
+        rec: Rec,
+        armed: bool,
+    }
+
+    impl Sink for Flaky {
+        fn display(&mut self, ev: &DisplayEvent, json: Arc<str>) {
+            if std::mem::take(&mut self.armed) {
+                panic!("test: the sink failed");
+            }
+            self.rec.display(ev, json);
+        }
+        fn legends(&mut self, l: Legends, json: Arc<str>) {
+            self.rec.legends(l, json);
+        }
+        fn view(&mut self, v: PipelineView) {
+            self.rec.view(v);
+        }
+        fn foreground_changed(&mut self) {
+            self.rec.foreground_changed();
+        }
+        fn failed(&mut self, stopped: bool) {
+            self.rec.failed(stopped);
+        }
+    }
+
+    const VK_F5: (u16, u16) = (0x74, 0x3F);
+
+    fn grun(
+        g: &mut Guarded,
+        s: &mut Flaky,
+        input: Vec<InputEvent>,
+        changes: Vec<Change>,
+        now: u64,
+    ) -> Flow {
+        let mut buf = Vec::new();
+        let flow = g.run(
+            &mut buf,
+            move |buf| {
+                buf.extend(input);
+                changes
+            },
+            &move || now,
+            s,
+            &mut || None,
+        );
+        assert!(buf.is_empty(), "nothing is left for the next pass");
+        flow
+    }
+
+    /// Passes with password detection running (as the thread reports it).
+    fn quiet(g: &mut Guarded, s: &mut Flaky, now: u64, n: u64) {
+        for i in 0..n {
+            let flow = grun(g, s, vec![], vec![Change::PasswordDetection(true)], now + i);
+            assert_eq!(flow, Flow::Run);
+        }
+    }
+
+    fn notepad() -> Change {
+        ctx(fg(ForegroundKind::App, Some("notepad.exe")))
+    }
+
+    fn guarded_ready() -> (Guarded, Flaky) {
+        let mut g = Guarded::new(core_with(Settings::default()));
+        let mut s = Flaky::default();
+        let flow = grun(
+            &mut g,
+            &mut s,
+            vec![],
+            vec![Change::PasswordDetection(true), notepad(), password(false)],
+            1,
+        );
+        assert_eq!(flow, Flow::Run);
+        quiet(&mut g, &mut s, 2, 3);
+        s.rec.clear();
+        (g, s)
+    }
+
+    fn panicking_pass(g: &mut Guarded, s: &mut Flaky) -> Flow {
+        let mut buf = Vec::new();
+        g.run(
+            &mut buf,
+            |_| -> Vec<Change> { panic!("test: the drain failed") },
+            &|| 50,
+            s,
+            &mut || None,
+        )
+    }
+
+    #[test]
+    fn a_panic_rebuilds_the_core_releases_every_key_and_fails_closed() {
+        let (mut g, mut s) = guarded_ready();
+        grun(&mut g, &mut s, typed(100, &[VK_F5]), vec![], 300);
+        assert!(s.rec.callouts().contains(&"F5".to_string()));
+        s.rec.clear();
+
+        s.armed = true;
+        let flow = grun(&mut g, &mut s, typed(1000, &[VK_F5]), vec![], 1300);
+        assert_eq!(flow, Flow::Rebuilt, "the thread survives");
+        assert_eq!(s.rec.failures, vec![false]);
+        assert!(
+            matches!(
+                s.rec.shown.last(),
+                Some((DisplayEvent::ModifiersReleased { .. }, _))
+            ),
+            "the hosts release every key: {:?}",
+            s.rec.shown
+        );
+        let core = g.core().expect("rebuilt");
+        assert_eq!(core.gate().privacy(), Some(Reason::Unidentified));
+        assert!(!core.full_password_detection(), "typing masked until told");
+        s.rec.clear();
+
+        // Nothing shows until the watcher reports the foreground again.
+        grun(&mut g, &mut s, typed(2000, &[VK_F5]), vec![], 2300);
+        assert!(s.rec.callouts().is_empty(), "{:?}", s.rec.shown);
+        assert_eq!(s.rec.keys(), 0);
+
+        grun(
+            &mut g,
+            &mut s,
+            vec![],
+            vec![Change::PasswordDetection(true), notepad()],
+            3000,
+        );
+        quiet(&mut g, &mut s, 3001, 3);
+        s.rec.clear();
+        grun(&mut g, &mut s, typed(4000, &[VK_F5]), vec![], 4300);
+        assert!(s.rec.callouts().contains(&"F5".to_string()));
+    }
+
+    #[test]
+    fn a_change_read_in_the_failed_pass_survives_the_rebuild() {
+        let (mut g, mut s) = guarded_ready();
+        // The settings and the password field are read; showing the
+        // suppression fails.
+        s.armed = true;
+        let flow = grun(
+            &mut g,
+            &mut s,
+            vec![],
+            vec![
+                Change::Control(Control::Settings(Arc::new(solidworks_on()))),
+                password(true),
+                Change::PasswordDetection(true),
+            ],
+            100,
+        );
+        assert_eq!(flow, Flow::Rebuilt);
+        let core = g.core().expect("rebuilt");
+        assert_eq!(core.mode(), SolidworksMode::On);
+        assert_eq!(core.gate().privacy(), Some(Reason::Password));
+
+        // The foreground comes back; the password field still hides all.
+        grun(
+            &mut g,
+            &mut s,
+            vec![],
+            vec![Change::PasswordDetection(true), notepad()],
+            200,
+        );
+        quiet(&mut g, &mut s, 201, 3);
+        let core = g.core().expect("running");
+        assert_eq!(core.gate().privacy(), Some(Reason::Password));
+        s.rec.clear();
+        grun(&mut g, &mut s, typed(1000, &[VK_F5, VK_A]), vec![], 1300);
+        assert!(s.rec.callouts().is_empty(), "{:?}", s.rec.shown);
+        assert_eq!(s.rec.keys(), 0);
+    }
+
+    #[test]
+    fn repeated_panics_stop_the_display_but_not_shutdown() {
+        let (mut g, mut s) = guarded_ready();
+        for _ in 0..MAX_RECOVERIES {
+            assert_eq!(panicking_pass(&mut g, &mut s), Flow::Rebuilt);
+        }
+        assert_eq!(panicking_pass(&mut g, &mut s), Flow::Run);
+        assert!(g.core().is_none(), "gave up");
+        let mut want = vec![false; MAX_RECOVERIES as usize];
+        want.push(true);
+        assert_eq!(s.rec.failures, want);
+        assert_eq!(g.park_for(0), Duration::from_millis(PARK_MS));
+        s.rec.clear();
+
+        // The queue is still drained, nothing shows.
+        let flow = grun(
+            &mut g,
+            &mut s,
+            typed(1000, &[VK_F5]),
+            vec![Change::PasswordDetection(true), notepad(), password(false)],
+            1300,
+        );
+        assert_eq!(flow, Flow::Run);
+        quiet(&mut g, &mut s, 1301, 3);
+        grun(&mut g, &mut s, typed(2000, &[VK_F5]), vec![], 2300);
+        assert!(s.rec.shown.is_empty(), "{:?}", s.rec.shown);
+
+        let flow = grun(
+            &mut g,
+            &mut s,
+            vec![],
+            vec![Change::Control(Control::Shutdown)],
+            3000,
+        );
+        assert_eq!(flow, Flow::Stop);
     }
 
     impl Change {

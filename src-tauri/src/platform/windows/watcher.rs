@@ -31,8 +31,20 @@
 //!   [`PENDING_TIMEOUT_MS`] (then `Password { active: true }` is sent until
 //!   the answer comes). At start the hold begins before the first
 //!   `Foreground` event is sent. `ContextEvent::Password` follows
-//!   [`PasswordGate::app_suppressed`]; on the way into a password field the
-//!   hold is published first, on the way out the event is sent first.
+//!   [`PasswordGate::app_suppressed`] and is always sent *before* the hold
+//!   word changes: on the way out of a password field so the first keys
+//!   handed out are not suppressed by a stale state, on the way in so the
+//!   processor is suppressed before the modifier and Caps Lock records of a
+//!   dropped epoch reach it (`Outcome::Drop`). A hold that ends while the
+//!   app is not suppressing is `Outcome::Discard`: nothing of it passes.
+//! * Every epoch started by a focus or foreground change is marked as a
+//!   focus epoch, also when UI Automation does not run (then an `Open` or
+//!   `Drop` epoch is started after the `Foreground` event and the Win32
+//!   check). The input receiver decides the keys typed right after a Tab or
+//!   a click, which the hook stamped before this thread heard of the focus
+//!   change, by the first focus epoch after them (`platform::hold`). This
+//!   thread runs at `THREAD_PRIORITY_HIGHEST` so it hears of focus changes
+//!   soon on a loaded machine; it only waits for messages.
 //! * On every foreground window change (also between two windows of one
 //!   process) the overlay is put back on top of the topmost group without
 //!   waiting for the main thread, and a modifier resync is requested from
@@ -63,6 +75,9 @@ use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::RemoteDesktop::{
     WTSRegisterSessionNotification, WTSUnRegisterSessionNotification, NOTIFY_FOR_THIS_SESSION,
+};
+use windows::Win32::System::Threading::{
+    GetCurrentThread, SetThreadPriority, THREAD_PRIORITY_HIGHEST,
 };
 use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -164,6 +179,10 @@ struct WatcherState {
     gate: PasswordGate,
     /// The hold mode last published to [`PASSWORD_HOLD`].
     published: HoldMode,
+    /// The focus moved but no focus epoch was published for it (UI
+    /// Automation is not running): [`WatcherState::settle_focus`] publishes
+    /// one, unless a transition takes the mark first.
+    focus_due: bool,
     /// The last `Password { active }` sent, once the start event was sent.
     sent_active: Option<bool>,
     /// The request the pending timer runs for.
@@ -189,7 +208,7 @@ impl WatcherState {
         // SAFETY: no preconditions.
         let hwnd = unsafe { GetForegroundWindow() };
         self.on_foreground(hwnd, force, mods);
-        self.check_win32_password();
+        self.settle_focus();
     }
 
     fn on_foreground(&mut self, hwnd: HWND, force: bool, mods: ModifierSync) {
@@ -275,11 +294,27 @@ impl WatcherState {
         self.apply(step);
     }
 
+    /// After a foreground or focus event: the Win32 check, then the focus
+    /// epoch a focus change without UI Automation still owes the input
+    /// receiver. It comes after the `Foreground` event and the Win32 verdict
+    /// so the keys it lets out are handled under both.
+    fn settle_focus(&mut self) {
+        self.check_win32_password();
+        if std::mem::take(&mut self.focus_due) && self.published != HoldMode::Hold {
+            // The outcome is unused: the epoch being left is not a `Hold`.
+            PASSWORD_HOLD.publish(self.published, Outcome::Discard, true);
+            self.consumer.unpark();
+        }
+    }
+
     /// The focus moved (or may have): a new UI Automation request, input
-    /// held until it is answered.
+    /// held until it is answered (a focus epoch either way).
     fn focus_changed(&mut self) {
         let step = self.gate.on_focus_changed();
         self.apply(step);
+        if !step.new_focus {
+            self.focus_due = true;
+        }
     }
 
     /// `EVENT_OBJECT_FOCUS`. Repeats for the object that already has the
@@ -290,7 +325,7 @@ impl WatcherState {
             self.last_focus = Some(key);
             self.focus_changed();
         }
-        self.check_win32_password();
+        self.settle_focus();
     }
 
     fn on_uia_answer(&mut self, request: u32, verdict: Verdict) {
@@ -320,22 +355,22 @@ impl WatcherState {
         let active = self
             .gate
             .app_suppressed(self.sent_active.unwrap_or_else(|| self.gate.active()));
-        // Leaving a password field: tell the app before keys flow again, so
-        // the first ones are not suppressed by a stale state.
-        if self.sent_active == Some(true) && !active {
-            self.sent_active = Some(false);
-            self.send(ContextEvent::Password { active: false });
+        // Tell the app first, then change the hold. Leaving a password
+        // field: the first keys handed out afterwards must not be suppressed
+        // by a stale state. Entering one (or a focus that could not be
+        // classified): the processor must be suppressed before the modifier
+        // and Caps Lock records of the dropped input reach it. Before the
+        // start event only a suppression is sent early.
+        if self.sent_active != Some(active) && (self.sent_active.is_some() || active) {
+            self.sent_active = Some(active);
+            self.send(ContextEvent::Password { active });
         }
-        if let Some((mode, outcome)) = self.gate.hold_transition(self.published, &step) {
-            PASSWORD_HOLD.publish(mode, outcome);
+        if let Some((mode, outcome)) = self.gate.hold_transition(self.published, &step, active) {
+            let focus = step.new_focus || std::mem::take(&mut self.focus_due);
+            PASSWORD_HOLD.publish(mode, outcome, focus);
             self.published = mode;
             // The receiver releases or drops what it holds on its next drain.
             self.consumer.unpark();
-        }
-        // Entering one: the hold drops keys already; now the app suppresses.
-        if self.sent_active == Some(false) && active {
-            self.sent_active = Some(true);
-            self.send(ContextEvent::Password { active: true });
         }
         self.arm_timers(step.retry);
     }
@@ -429,7 +464,7 @@ impl WatcherState {
         let hwnd = unsafe { GetForegroundWindow() };
         if hwnd.0 as isize != self.fg_hwnd {
             self.on_foreground(hwnd, false, ModifierSync::Ordered);
-            self.check_win32_password();
+            self.settle_focus();
         } else {
             self.check_layout(false);
         }
@@ -472,7 +507,7 @@ impl WatcherState {
         // Nobody resolves the hold any more: drop what is held and stop
         // holding (the app shell stops input with the watcher).
         if self.published != HoldMode::Open {
-            PASSWORD_HOLD.publish(HoldMode::Open, Outcome::Drop);
+            PASSWORD_HOLD.publish(HoldMode::Open, Outcome::Discard, false);
             self.published = HoldMode::Open;
             self.consumer.unpark();
         }
@@ -529,7 +564,7 @@ unsafe extern "system" fn win_event_proc(
         let handled = match event {
             EVENT_SYSTEM_FOREGROUND => with_state(|s| {
                 s.on_foreground(hwnd, false, ModifierSync::Ordered);
-                s.check_win32_password();
+                s.settle_focus();
             }),
             EVENT_OBJECT_FOCUS => with_state(|s| s.on_focus_event(hwnd, id_object, id_child)),
             _ => true,
@@ -690,6 +725,13 @@ fn watcher_thread(
     status: Arc<Status>,
     ready: SyncSender<Result<isize, PlatformError>>,
 ) {
+    // Hear of focus changes soon on a loaded machine: keys typed right
+    // after a Tab or a click wait for them (`platform::hold`). The thread
+    // only waits for messages, so it takes little time from others.
+    // SAFETY: the pseudo handle of this thread.
+    if unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST) }.is_err() {
+        tracing::warn!("the watcher thread priority could not be raised");
+    }
     let hwnd = match create_window() {
         Ok(h) => h,
         Err(e) => {
@@ -739,6 +781,7 @@ fn watcher_thread(
         hkl: 0,
         gate: PasswordGate::new(),
         published: PASSWORD_HOLD.mode(),
+        focus_due: false,
         sent_active: None,
         pending_timer: None,
         last_focus: None,
@@ -759,9 +802,14 @@ fn watcher_thread(
     state.refresh(true, ModifierSync::Event);
     state.check_layout(true);
     state.check_displays();
-    let active = state.gate.app_suppressed(false);
-    state.sent_active = Some(active);
-    state.send(ContextEvent::Password { active });
+    // Once at start (unless a suppression was sent already).
+    let active = state
+        .gate
+        .app_suppressed(state.sent_active.unwrap_or(false));
+    if state.sent_active != Some(active) {
+        state.sent_active = Some(active);
+        state.send(ContextEvent::Password { active });
+    }
     STATE.with(|cell| *cell.borrow_mut() = Some(state));
     status.running.store(true, Ordering::Release);
 

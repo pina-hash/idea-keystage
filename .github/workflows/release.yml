@@ -16,8 +16,19 @@ env:
   RUST_TOOLCHAIN: '1.97.0'
 
 jobs:
+  # The full CI (type check, front end tests, core crate tests, clippy, rustfmt,
+  # and the Windows app and platform tests) on the tagged commit. A tag can
+  # point at a commit CI never saw (CI runs only on main and pull requests), so
+  # the release runs it itself instead of trusting an earlier run.
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   windows:
     name: Windows installer and portable exe
+    needs: ci
     runs-on: windows-latest
     timeout-minutes: 60
     defaults:
@@ -60,8 +71,11 @@ jobs:
 
       # Builds the front end (beforeBuildCommand), the release exe with its
       # pages embedded, and the NSIS installer. No updater, no signing.
+      # Arguments after `--` go to cargo: `--locked` fails the build when
+      # Cargo.lock does not match Cargo.toml, as in CI, instead of resolving a
+      # new dependency graph on the runner.
       - name: Build
-        run: npx tauri build --bundles nsis
+        run: npx tauri build --bundles nsis -- --locked
 
       - name: Collect the files and their checksums
         run: |

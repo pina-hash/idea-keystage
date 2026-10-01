@@ -8,6 +8,7 @@ import type { KeyboardConfig, OverlayConfig, Route } from '../protocol';
 import {
 	CALLOUT_GEOMETRY,
 	CALLOUT_UNIT_PX,
+	KEYBOARD_BLEED_U,
 	KEYBOARD_FOOTPRINTS,
 	KEYBOARD_MOUSE_W,
 	KEYBOARD_UNIT_PX,
@@ -71,13 +72,18 @@ export function mouseDrawingSize(scale: number): SourceSize {
 	return { width: h * MOUSE_DIAGRAM.aspect, height: h };
 }
 
-/** The content box of the keyboard visual (and the mouse beside it), in px. */
+/**
+ * The content box of the keyboard visual (and the mouse beside it), in px:
+ * the drawing, its glow bleed on every side, and the offsets.
+ */
 export function keyboardBox(config: OverlayConfig): SourceSize {
 	const s = scaleOf(config);
-	const drawing = keyboardDrawingSize(config.keyboard, KEYBOARD_UNIT_PX[config.keyboard.size] * s);
+	const unit = KEYBOARD_UNIT_PX[config.keyboard.size] * s;
+	const drawing = keyboardDrawingSize(config.keyboard, unit);
+	const bleed = KEYBOARD_BLEED_U * unit;
 	return {
-		width: drawing.width + Math.abs(config.keyboard.offset_x) * s,
-		height: drawing.height + Math.abs(config.keyboard.offset_y) * s,
+		width: drawing.width + 2 * bleed + Math.abs(config.keyboard.offset_x) * s,
+		height: drawing.height + 2 * bleed + Math.abs(config.keyboard.offset_y) * s,
 	};
 }
 

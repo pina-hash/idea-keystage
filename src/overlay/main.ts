@@ -7,6 +7,7 @@ import { mount } from 'svelte';
 import { createTransport } from '../lib/renderer/transport';
 import { RendererStore } from '../lib/renderer/store.svelte';
 import { isInObs, parsePageOptions } from '../lib/renderer/options';
+import { preloadFonts } from '../lib/styles/preload';
 import App from './App.svelte';
 import './overlay.css';
 
@@ -16,6 +17,8 @@ const store = new RendererStore({ route: options.route, overrides: options.overr
 const target = document.getElementById('app');
 
 if (target) {
+	// While the app that served this page is still there (UX-3).
+	void preloadFonts(document.fonts);
 	document.documentElement.dataset.route = options.route;
 	mount(App, { target, props: { store, options, inObs } });
 	store.connect(createTransport(options, { location: window.location }));

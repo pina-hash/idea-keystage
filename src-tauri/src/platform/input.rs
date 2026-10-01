@@ -155,7 +155,10 @@ impl InputReceiver {
     /// check of a new focus was pending are kept back until the watcher
     /// classified it, then handed out (not a password) or dropped (anything
     /// else); records stamped while a password field had the focus are
-    /// dropped ([`super::hold`]). After the hooks were (re)installed it
+    /// dropped. Key records typed right after a Tab, Enter, Esc, F6 or a
+    /// click are also kept back until the watcher reports where the focus
+    /// went, at most [`super::hold::PROVISIONAL_MS`] when it reports
+    /// nothing ([`super::hold`]). After the hooks were (re)installed it
     /// appends an `InputEvent::ModifierResync` read with `GetAsyncKeyState`,
     /// when the desktop is readable and nothing is kept back (the resync
     /// must follow the events it summarizes). Returns the number of events
@@ -169,7 +172,7 @@ impl InputReceiver {
         let fill = self.fill_scan;
         let hold = self.hold;
         // What the watcher resolved since the last call goes first.
-        let mut added = self.filter.flush(hold, out);
+        let mut added = self.filter.flush(hold, now, out);
         while let Some(raw) = self.shared.queue.pop() {
             if self.shared.paused.load(Ordering::Acquire) {
                 continue;
@@ -179,7 +182,7 @@ impl InputReceiver {
                 if let InputEvent::Key(k) = &ev {
                     self.shared.note_modifier(k.vk, k.down, k.t_ms);
                 }
-                added += self.filter.push(hold, raw.hold, ev, out);
+                added += self.filter.push(hold, raw.hold, ev, now, out);
             }
         }
         if self.shared.paused.load(Ordering::Acquire) {
@@ -211,6 +214,15 @@ impl InputReceiver {
     /// True while records are kept back for a pending password check.
     pub fn is_holding(&self) -> bool {
         self.filter.is_holding()
+    }
+
+    /// True (once) when Caps Lock presses were discarded with a password
+    /// hold that ended without the app suppressing (`platform::hold`), so
+    /// the processor's Caps Lock state may be off: read it again
+    /// ([`crate::platform::read_modifiers`], `caps_lock`) and seed it with
+    /// `Processor::set_caps_lock`. Call after [`Self::drain_into`].
+    pub fn take_caps_lock_unsynced(&mut self) -> bool {
+        self.filter.take_caps_lock_unsynced()
     }
 
     /// Records lost to a full queue since start (should stay 0).
@@ -428,7 +440,7 @@ mod tests {
         shared
             .record(RawEvent::key(msg::WM_KEYDOWN, 0x09, 0x0F, 0, t - 40).with_hold(hold.stamp()));
         // The focus moved to the password field; no verdict yet.
-        let pending = hold.publish(HoldMode::Hold, Outcome::Drop);
+        let pending = hold.publish(HoldMode::Hold, Outcome::Drop, true);
         for (i, (code, scan)) in [(0x50u32, 0x19u32), (0x41, 0x1E), (0x53, 0x1F)]
             .into_iter()
             .enumerate()
@@ -450,7 +462,7 @@ mod tests {
             "the resync waits for the held events"
         );
         // The late verdict: a password field.
-        hold.publish(HoldMode::Drop, Outcome::Drop);
+        hold.publish(HoldMode::Drop, Outcome::Drop, false);
         out.clear();
         assert_eq!(rx.drain_into(&mut out), 1);
         assert!(
@@ -467,11 +479,11 @@ mod tests {
         let shared = Arc::new(InputShared::new());
         let mut rx = InputReceiver::new(shared.clone(), hold, now, fill, held);
         let t = NOW as u32;
-        let pending = hold.publish(HoldMode::Hold, Outcome::Drop);
+        let pending = hold.publish(HoldMode::Hold, Outcome::Drop, true);
         shared.record(RawEvent::key(msg::WM_KEYDOWN, 0x41, 0x1E, 0, t - 20).with_hold(pending));
         let mut out = Vec::new();
         assert_eq!(rx.drain_into(&mut out), 0);
-        let open = hold.publish(HoldMode::Open, Outcome::Release);
+        let open = hold.publish(HoldMode::Open, Outcome::Release, false);
         shared.record(
             RawEvent::key(msg::WM_KEYUP, 0x41, 0x1E, flags::LLKHF_UP, t - 10).with_hold(open),
         );
@@ -486,7 +498,7 @@ mod tests {
         let hold = open_hold();
         let shared = Arc::new(InputShared::new());
         let mut rx = InputReceiver::new(shared.clone(), hold, now, fill, held);
-        let pending = hold.publish(HoldMode::Hold, Outcome::Drop);
+        let pending = hold.publish(HoldMode::Hold, Outcome::Drop, true);
         shared.record(RawEvent::key(msg::WM_KEYDOWN, 0x41, 0x1E, 0, NOW as u32).with_hold(pending));
         let mut out = Vec::new();
         assert_eq!(rx.drain_into(&mut out), 0);
@@ -495,7 +507,7 @@ mod tests {
         assert_eq!(rx.drain_into(&mut out), 0);
         assert!(!rx.is_holding());
         shared.paused.store(false, Ordering::Release);
-        hold.publish(HoldMode::Open, Outcome::Release);
+        hold.publish(HoldMode::Open, Outcome::Release, false);
         assert_eq!(rx.drain_into(&mut out), 0, "nothing from before the pause");
     }
 
