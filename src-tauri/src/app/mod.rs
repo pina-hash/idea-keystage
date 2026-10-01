@@ -5,6 +5,7 @@
 
 pub mod actions;
 pub mod commands;
+pub mod exposure;
 pub mod hotkeys;
 pub mod icons;
 pub mod logging;

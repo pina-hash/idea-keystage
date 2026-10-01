@@ -19,6 +19,7 @@ import {
 import {
 	HOTKEY_NAMES,
 	type DisplayRules,
+	type ExportResult,
 	type Hotkeys,
 	type ObsState,
 	type ProfileDisplay,
@@ -370,7 +371,20 @@ export function defaultStatus(): Status {
 		session: null,
 		hook: { installed: false, dropped: 0 },
 		version: '',
+		notices: [],
 	};
+}
+
+/** Non-empty, distinct sentences from a reply's list (anything else is dropped). */
+function sentences(v: unknown): string[] {
+	if (!Array.isArray(v)) return [];
+	const out: string[] = [];
+	for (const x of v) {
+		if (typeof x !== 'string') continue;
+		const t = x.trim();
+		if (t.length > 0 && !out.includes(t)) out.push(t);
+	}
+	return out;
 }
 
 /** Fills a Status reply the same way (tolerant of missing fields). */
@@ -427,6 +441,16 @@ export function normalizeStatus(v: unknown): Status {
 			dropped: int(hook.dropped, 0, 0),
 		},
 		version: str(r.version, d.version),
+		notices: sentences(r.notices),
+	};
+}
+
+/** Fills a `session_export` reply: the path written, and its warnings. */
+export function normalizeExportResult(v: unknown, requestedPath: string): ExportResult {
+	const r = rec(v);
+	return {
+		path: typeof r.path === 'string' && r.path.trim() ? r.path : requestedPath,
+		warnings: sentences(r.warnings),
 	};
 }
 

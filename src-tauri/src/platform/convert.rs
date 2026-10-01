@@ -76,7 +76,9 @@ pub enum RawSource {
 ///
 /// It holds the hook structure's fields unchanged, so the hook procedure does
 /// no work beyond the copy. For keyboard records `x`, `y` and `mouse_data`
-/// are zero; for mouse records `vk` and `scan` are zero.
+/// are zero; for mouse records `vk` and `scan` are zero. `hold` is the
+/// password hold word the procedure read when it ran
+/// ([`super::hold::PasswordHold::stamp`], one atomic load).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
 pub struct RawEvent {
@@ -97,6 +99,9 @@ pub struct RawEvent {
     pub y: i32,
     /// `MSLLHOOKSTRUCT.mouseData`.
     pub mouse_data: u32,
+    /// The password hold word when the hook saw this record (0: epoch 0,
+    /// open). See [`super::hold`].
+    pub hold: u32,
 }
 
 impl RawEvent {
@@ -111,6 +116,12 @@ impl RawEvent {
             time,
             ..RawEvent::default()
         }
+    }
+
+    /// The same record stamped with a password hold word.
+    #[inline(always)]
+    pub fn with_hold(self, hold: u32) -> RawEvent {
+        RawEvent { hold, ..self }
     }
 
     /// A mouse record as the mouse hook procedure builds it.

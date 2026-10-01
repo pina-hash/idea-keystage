@@ -40,7 +40,8 @@
 	let detail = $state<SessionDetail | null>(null);
 	let edits = $state<{ name: string }[]>([]);
 	let busy = $state<string | null>(null);
-	let lastExport = $state<string | null>(null);
+	/** The last export of the session shown, with what the app said about the file. */
+	let lastExport = $state<{ label: string; path: string; warnings: string[] } | null>(null);
 
 	async function loadList() {
 		try {
@@ -116,12 +117,19 @@
 		);
 		if (!path) return;
 		busy = `export-${kind.format}`;
+		lastExport = null;
 		const r = await ctl.run(() => ctl.ipc.sessionExport(d.id, kind.format, path));
 		busy = null;
-		if (r) {
-			lastExport = r.path;
-			ctl.toast(`Saved ${r.path}`, 'ok');
-		}
+		if (!r) return;
+		// The warnings stay beside the export keys: times that may not match the
+		// video, a recording or a chapter name left out.
+		if (detail?.id === d.id) lastExport = { label: kind.label, path: r.path, warnings: r.warnings };
+		if (r.warnings.length === 0) ctl.toast(`Saved ${r.path}`, 'ok');
+		else
+			ctl.toast(
+				`Saved ${r.path}. Read the ${r.warnings.length === 1 ? 'warning' : 'warnings'} under Export.`,
+				'info'
+			);
 	}
 
 	async function remove() {
@@ -341,7 +349,12 @@
 					{/each}
 				</div>
 				{#if lastExport}
-					<Notice tone="ok" lead="Saved">{lastExport}</Notice>
+					<div class="st-export-result">
+						<Notice tone="ok" lead="Saved {lastExport.label}">{lastExport.path}</Notice>
+						{#each lastExport.warnings as warning (warning)}
+							<Notice tone="warn" announce>{warning}</Notice>
+						{/each}
+					</div>
 				{/if}
 				<div class="st-detail-foot">
 					<ConfirmKey
@@ -565,6 +578,11 @@
 		flex-direction: column;
 		align-items: flex-start;
 		gap: 0.3rem;
+	}
+	.st-export-result {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
 	}
 	.st-export-help {
 		font-size: 0.9rem;

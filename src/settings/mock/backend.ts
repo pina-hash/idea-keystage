@@ -41,6 +41,7 @@ import type {
 import {
 	MOCK_DOCS,
 	MOCK_DPAPI_BLOB,
+	MOCK_EXPORT_WARNINGS,
 	MOCK_VERSION,
 	mockMonitors,
 	mockSessions,
@@ -83,6 +84,15 @@ export interface MockBackend extends Backend {
 		sessions: MockSession[];
 		files: Map<string, string>;
 	};
+	/**
+	 * For tests: the app changes the stored settings itself, as the tray's
+	 * SolidWorks mode and Native overlay items and the mode hotkey do. Emits
+	 * the status and, unless `settingsEvent` is false (an app without
+	 * `keystage://settings`), the settings event.
+	 */
+	changeFromApp(edit: (s: Settings) => void, opts?: { settingsEvent?: boolean }): void;
+	/** For tests: replaces `Status.notices` and emits the status. */
+	setNotices(notices: string[]): void;
 }
 
 async function loadBuiltinProfile(): Promise<ProfileData> {
@@ -184,6 +194,13 @@ export function createMockBackend(opts: MockOptions): MockBackend {
 		emit('keystage://overlay', { t: 'state', state: appState() });
 	}
 
+	/** `keystage://settings`: the stored settings changed (the password blob is left out). */
+	function settingsChanged(): void {
+		const out = clone(settings);
+		out.obs.password_dpapi = null;
+		emit('keystage://settings', out);
+	}
+
 	function ensureTicker(): void {
 		const want = (listeners.get('keystage://status')?.size ?? 0) > 0;
 		if (want && ticker === null) {
@@ -264,6 +281,7 @@ export function createMockBackend(opts: MockOptions): MockBackend {
 		}
 		emit('keystage://overlay', { t: 'config', config: clone(settings.overlay) });
 		statusChanged();
+		settingsChanged();
 	}
 
 	async function importResult(source: ImportSource): Promise<MockImportResult> {
@@ -341,6 +359,7 @@ export function createMockBackend(opts: MockOptions): MockBackend {
 				status.solidworks_mode = mode;
 				status.profile = mode === 'off' ? null : { id: 'solidworks', name: 'SolidWorks' };
 				statusChanged();
+				settingsChanged();
 				return currentStatus();
 			}
 			case 'set_keyboard_visible': {
@@ -377,6 +396,7 @@ export function createMockBackend(opts: MockOptions): MockBackend {
 					status.obs.error = null;
 				}
 				statusChanged();
+				settingsChanged();
 				return { stored: settings.obs.password_dpapi !== null };
 			}
 			case 'shortcuts_import_preview': {
@@ -389,10 +409,12 @@ export function createMockBackend(opts: MockOptions): MockBackend {
 					throw new MockError('There is nothing to apply in that import.');
 				settings.profiles.solidworks_user_shortcuts = result.entries.map((e) => ({ ...e }));
 				statusChanged();
+				settingsChanged();
 				return clone(settings);
 			}
 			case 'shortcuts_import_clear': {
 				settings.profiles.solidworks_user_shortcuts = [];
+				settingsChanged();
 				return clone(settings);
 			}
 			case 'profile_shortcuts': {
@@ -462,14 +484,22 @@ export function createMockBackend(opts: MockOptions): MockBackend {
 				return sessionJson(s);
 			}
 			case 'session_export': {
-				findSession(String(args.id));
+				const session = findSession(String(args.id));
 				const format = args.format as ExportFormat;
 				if (!['srt', 'md', 'json', 'chapters'].includes(format))
 					throw new MockError('Unknown format.');
 				const path = String(args.path ?? '');
 				if (!path) throw new MockError('Choose where to save the file.');
 				files.set(path, format);
-				return { path };
+				// As keystage-session: the mock sessions have no OBS timing.
+				const warnings: string[] = [];
+				if (format !== 'json') warnings.push(MOCK_EXPORT_WARNINGS.sessionClock);
+				if (format === 'chapters') {
+					const named00 = session.markers.some((m) => m.t_ms < 1000);
+					const count = session.markers.length + (named00 ? 0 : 1);
+					if (count < 3) warnings.push(MOCK_EXPORT_WARNINGS.fewChapters(count));
+				}
+				return { path, warnings };
 			}
 			case 'session_delete': {
 				findSession(String(args.id));
@@ -572,6 +602,18 @@ export function createMockBackend(opts: MockOptions): MockBackend {
 		},
 		peek() {
 			return { settings: clone(settings), status: currentStatus(), sessions, files };
+		},
+		changeFromApp(edit, o = {}) {
+			const next = clone(settings);
+			edit(next);
+			settings = next;
+			status.solidworks_mode = next.profiles.solidworks_mode;
+			statusChanged();
+			if (o.settingsEvent !== false) settingsChanged();
+		},
+		setNotices(notices) {
+			status.notices = [...notices];
+			statusChanged();
 		},
 	};
 	return backend;

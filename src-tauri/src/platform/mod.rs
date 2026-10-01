@@ -22,6 +22,7 @@ mod context;
 pub mod convert;
 pub mod display;
 mod error;
+pub mod hold;
 mod input;
 pub mod legend_table;
 pub mod secret;
@@ -45,7 +46,7 @@ use keystage_core::ipc::Monitor;
 pub use backend::{InputHandle, WatcherHandle};
 pub use context::{
     classify_foreground, exe_file_name, is_edit_class, win32_verdict, ContextEvent, ForegroundInfo,
-    ForegroundKind, ModifierSnapshot, PasswordGate, Verdict,
+    ForegroundKind, GateStep, ModifierSnapshot, PasswordGate, Verdict, UIA_UNKNOWN_RETRIES,
 };
 pub use error::PlatformError;
 pub use input::{InputReceiver, QUEUE_CAPACITY};

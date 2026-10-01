@@ -21,6 +21,18 @@
 //! * UI Automation runs on its own thread ([`super::uia`]) and posts its
 //!   verdicts to this window, so every password decision is made here, on
 //!   one thread, by the fail-closed [`PasswordGate`].
+//! * Password hold (`platform::hold`; ARCHITECTURE.md section 8, rule 3):
+//!   every foreground change and every `EVENT_OBJECT_FOCUS` for a new object
+//!   starts a new UI Automation request and a new `Hold` epoch, published
+//!   to [`PASSWORD_HOLD`] before anything else is done, so the keys pressed
+//!   from then on are held by the input receiver. The answer to that
+//!   request releases them ("not a password") or drops them; so do a newer
+//!   focus change, an unreadable element, and no answer within
+//!   [`PENDING_TIMEOUT_MS`] (then `Password { active: true }` is sent until
+//!   the answer comes). At start the hold begins before the first
+//!   `Foreground` event is sent. `ContextEvent::Password` follows
+//!   [`PasswordGate::app_suppressed`]; on the way into a password field the
+//!   hold is published first, on the way out the event is sent first.
 //! * On every foreground window change (also between two windows of one
 //!   process) the overlay is put back on top of the topmost group without
 //!   waiting for the main thread, and a modifier resync is requested from
@@ -65,11 +77,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use keystage_core::ipc::Monitor;
 
 use super::super::display::DisplayChangeWatch;
-use super::super::{ContextEvent, ForegroundInfo, PasswordGate, PlatformError, Verdict};
+use super::super::hold::{HoldMode, Outcome};
+use super::super::{ContextEvent, ForegroundInfo, GateStep, PasswordGate, PlatformError, Verdict};
 use super::process::{self, ProcessCache};
-use super::uia::UiaThread;
+use super::uia::{self, UiaThread};
 use super::{
-    hooks, layout, monitors, now_ms, window_style, CURRENT_HKL, FOREGROUND_BLIND, SESSION_LOCKED,
+    hooks, layout, monitors, now_ms, window_style, CURRENT_HKL, FOREGROUND_BLIND, PASSWORD_HOLD,
+    SESSION_LOCKED,
 };
 
 const CLASS_NAME: PCWSTR = w!("IDEAKeystageWatcher");
@@ -77,10 +91,24 @@ const CLASS_NAME: PCWSTR = w!("IDEAKeystageWatcher");
 /// Messages to the watcher window.
 const MSG_STOP: u32 = WM_APP + 0x10;
 const MSG_REFRESH: u32 = WM_APP + 0x11;
-const MSG_UIA_VERDICT: u32 = WM_APP + 0x12;
+const MSG_UIA_ANSWER: u32 = WM_APP + 0x12;
+const MSG_UIA_EVENT: u32 = WM_APP + 0x13;
+const MSG_UIA_UNAVAILABLE: u32 = WM_APP + 0x14;
 
 const TIMER_POLL: usize = 1;
 const POLL_MS: u32 = 500;
+/// Fires when UI Automation has not answered the awaited request in time.
+const TIMER_PENDING: usize = 2;
+/// Fires to ask UI Automation again after an `Unknown` answer.
+const TIMER_RETRY: usize = 3;
+/// How long input is held for a focus change before the focus counts as a
+/// password field until UI Automation answers.
+const PENDING_TIMEOUT_MS: u32 = 400;
+/// The same while UI Automation is still starting (creating the client and
+/// subscribing can take a while at logon).
+const START_PENDING_TIMEOUT_MS: u32 = 3_000;
+/// Delay before asking again after an unreadable element.
+const RETRY_MS: u32 = 250;
 /// Retry session registration every 2 s for up to 2 minutes.
 const WTS_RETRY_TICKS: u32 = 4;
 const WTS_MAX_ATTEMPTS: u32 = 60;
@@ -134,6 +162,15 @@ struct WatcherState {
     fg: Option<ForegroundInfo>,
     hkl: isize,
     gate: PasswordGate,
+    /// The hold mode last published to [`PASSWORD_HOLD`].
+    published: HoldMode,
+    /// The last `Password { active }` sent, once the start event was sent.
+    sent_active: Option<bool>,
+    /// The request the pending timer runs for.
+    pending_timer: Option<u32>,
+    /// The object of the last `EVENT_OBJECT_FOCUS` (window, object, child),
+    /// forgotten on every foreground change.
+    last_focus: Option<(isize, i32, i32)>,
     procs: ProcessCache,
     uia: Option<UiaThread>,
     displays: DisplayChangeWatch<Vec<Monitor>>,
@@ -161,6 +198,10 @@ impl WatcherState {
             return;
         }
         self.fg_hwnd = raw;
+        // Hold input first: the focus is somewhere new. The next focus event
+        // always counts as new, whatever object it names.
+        self.last_focus = None;
+        self.focus_changed();
         // Every foreground window change, also between two windows of one
         // process (which `Foreground` does not report): a topmost window
         // that just came forward must not cover the overlay (ARCHITECTURE.md
@@ -230,15 +271,116 @@ impl WatcherState {
     }
 
     fn check_win32_password(&mut self) {
-        if let Some(active) = self.gate.on_win32(process::win32_password_verdict()) {
-            self.send(ContextEvent::Password { active });
+        let step = self.gate.on_win32(process::win32_password_verdict());
+        self.apply(step);
+    }
+
+    /// The focus moved (or may have): a new UI Automation request, input
+    /// held until it is answered.
+    fn focus_changed(&mut self) {
+        let step = self.gate.on_focus_changed();
+        self.apply(step);
+    }
+
+    /// `EVENT_OBJECT_FOCUS`. Repeats for the object that already has the
+    /// focus are not a focus change (some apps raise it again and again).
+    fn on_focus_event(&mut self, hwnd: HWND, object: i32, child: i32) {
+        let key = (hwnd.0 as isize, object, child);
+        if self.last_focus != Some(key) {
+            self.last_focus = Some(key);
+            self.focus_changed();
+        }
+        self.check_win32_password();
+    }
+
+    fn on_uia_answer(&mut self, request: u32, verdict: Verdict) {
+        let step = self.gate.on_uia_answer(request, verdict);
+        self.apply(step);
+    }
+
+    fn on_uia_event(&mut self, verdict: Verdict) {
+        let step = self.gate.on_uia_event(verdict);
+        self.apply(step);
+    }
+
+    fn on_uia_unavailable(&mut self) {
+        if let Some(mut u) = self.uia.take() {
+            u.stop();
+        }
+        let step = self.gate.on_uia_unavailable();
+        self.apply(step);
+    }
+
+    /// Carries out a gate step: the UI Automation request, the hold, the
+    /// `Password` event and the timers.
+    fn apply(&mut self, step: GateStep) {
+        if let (Some(id), Some(u)) = (step.request, self.uia.as_ref()) {
+            u.classify(id);
+        }
+        let active = self
+            .gate
+            .app_suppressed(self.sent_active.unwrap_or_else(|| self.gate.active()));
+        // Leaving a password field: tell the app before keys flow again, so
+        // the first ones are not suppressed by a stale state.
+        if self.sent_active == Some(true) && !active {
+            self.sent_active = Some(false);
+            self.send(ContextEvent::Password { active: false });
+        }
+        if let Some((mode, outcome)) = self.gate.hold_transition(self.published, &step) {
+            PASSWORD_HOLD.publish(mode, outcome);
+            self.published = mode;
+            // The receiver releases or drops what it holds on its next drain.
+            self.consumer.unpark();
+        }
+        // Entering one: the hold drops keys already; now the app suppresses.
+        if self.sent_active == Some(false) && active {
+            self.sent_active = Some(true);
+            self.send(ContextEvent::Password { active: true });
+        }
+        self.arm_timers(step.retry);
+    }
+
+    fn arm_timers(&mut self, retry: bool) {
+        let awaiting = self.gate.awaiting();
+        if awaiting != self.pending_timer {
+            self.pending_timer = awaiting;
+            if awaiting.is_some() {
+                let ms = if self.status.uia.load(Ordering::Acquire) {
+                    PENDING_TIMEOUT_MS
+                } else {
+                    START_PENDING_TIMEOUT_MS
+                };
+                // SAFETY: our own window; replaces a running timer of this id.
+                if unsafe { SetTimer(Some(self.hwnd), TIMER_PENDING, ms, None) } == 0 {
+                    // Without the timer the hold lasts until the answer
+                    // (or until the receiver's bound): still closed.
+                    self.pending_timer = None;
+                }
+            } else {
+                // SAFETY: our own window and timer.
+                let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_PENDING) };
+            }
+        }
+        if retry {
+            // SAFETY: our own window.
+            let _ = unsafe { SetTimer(Some(self.hwnd), TIMER_RETRY, RETRY_MS, None) };
         }
     }
 
-    fn on_uia(&mut self, verdict: Verdict) {
-        if let Some(active) = self.gate.on_uia(verdict) {
-            self.send(ContextEvent::Password { active });
+    fn on_pending_timeout(&mut self) {
+        // SAFETY: our own window and timer (one shot).
+        let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_PENDING) };
+        if let Some(request) = self.pending_timer.take() {
+            let step = self.gate.on_timeout(request);
+            self.apply(step);
         }
+    }
+
+    fn on_retry(&mut self) {
+        // SAFETY: our own window and timer (one shot).
+        let _ = unsafe { KillTimer(Some(self.hwnd), TIMER_RETRY) };
+        let step = self.gate.on_retry();
+        self.apply(step);
     }
 
     fn on_session(&mut self, code: u32) {
@@ -323,6 +465,17 @@ impl WatcherState {
         if let Some(mut u) = self.uia.take() {
             u.stop();
         }
+        for timer in [TIMER_PENDING, TIMER_RETRY] {
+            // SAFETY: our own window; harmless if the timer is not set.
+            let _ = unsafe { KillTimer(Some(self.hwnd), timer) };
+        }
+        // Nobody resolves the hold any more: drop what is held and stop
+        // holding (the app shell stops input with the watcher).
+        if self.published != HoldMode::Open {
+            PASSWORD_HOLD.publish(HoldMode::Open, Outcome::Drop);
+            self.published = HoldMode::Open;
+            self.consumer.unpark();
+        }
         FOREGROUND_BLIND.store(false, Ordering::Release);
         SESSION_LOCKED.store(false, Ordering::Release);
     }
@@ -367,8 +520,8 @@ unsafe extern "system" fn win_event_proc(
     _hook: HWINEVENTHOOK,
     event: u32,
     hwnd: HWND,
-    _id_object: i32,
-    _id_child: i32,
+    id_object: i32,
+    id_child: i32,
     _thread: u32,
     _time: u32,
 ) {
@@ -378,7 +531,7 @@ unsafe extern "system" fn win_event_proc(
                 s.on_foreground(hwnd, false, ModifierSync::Ordered);
                 s.check_win32_password();
             }),
-            EVENT_OBJECT_FOCUS => with_state(WatcherState::check_win32_password),
+            EVENT_OBJECT_FOCUS => with_state(|s| s.on_focus_event(hwnd, id_object, id_child)),
             _ => true,
         };
         if !handled {
@@ -407,15 +560,41 @@ fn handle_message(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> Optio
             }
             Some(LRESULT(0))
         }
-        MSG_UIA_VERDICT => {
+        MSG_UIA_ANSWER => {
             let verdict = Verdict::from_param(wparam.0);
-            if !with_state(|s| s.on_uia(verdict)) {
+            let request = lparam.0 as u32;
+            if !with_state(|s| s.on_uia_answer(request, verdict)) {
+                post_to_self(msg, wparam, lparam);
+            }
+            Some(LRESULT(0))
+        }
+        MSG_UIA_EVENT => {
+            let verdict = Verdict::from_param(wparam.0);
+            if !with_state(|s| s.on_uia_event(verdict)) {
+                post_to_self(msg, wparam, lparam);
+            }
+            Some(LRESULT(0))
+        }
+        MSG_UIA_UNAVAILABLE => {
+            if !with_state(WatcherState::on_uia_unavailable) {
                 post_to_self(msg, wparam, lparam);
             }
             Some(LRESULT(0))
         }
         WM_TIMER if wparam.0 == TIMER_POLL => {
             with_state(WatcherState::on_timer);
+            Some(LRESULT(0))
+        }
+        WM_TIMER if wparam.0 == TIMER_PENDING => {
+            if !with_state(WatcherState::on_pending_timeout) {
+                post_to_self(msg, wparam, lparam);
+            }
+            Some(LRESULT(0))
+        }
+        WM_TIMER if wparam.0 == TIMER_RETRY => {
+            if !with_state(WatcherState::on_retry) {
+                post_to_self(msg, wparam, lparam);
+            }
             Some(LRESULT(0))
         }
         MSG_REFRESH => {
@@ -533,7 +712,12 @@ fn watcher_thread(
     if !timer {
         tracing::warn!("the watcher poll timer could not be set");
     }
-    let uia = match UiaThread::spawn(hwnd.0 as isize, MSG_UIA_VERDICT, status.uia.clone()) {
+    let messages = uia::Messages {
+        answer: MSG_UIA_ANSWER,
+        event: MSG_UIA_EVENT,
+        unavailable: MSG_UIA_UNAVAILABLE,
+    };
+    let uia = match UiaThread::spawn(hwnd.0 as isize, messages, status.uia.clone()) {
         Ok(u) => Some(u),
         Err(e) => {
             tracing::warn!("UI Automation password detection is unavailable: {e}");
@@ -554,18 +738,30 @@ fn watcher_thread(
         fg: None,
         hkl: 0,
         gate: PasswordGate::new(),
+        published: PASSWORD_HOLD.mode(),
+        sent_active: None,
+        pending_timer: None,
+        last_focus: None,
         procs: ProcessCache::new(),
         uia,
         displays: DisplayChangeWatch::new(),
     };
     state.register_session_notifications();
+    // Hold input until UI Automation has classified the focus, before the
+    // app hears about the foreground (fail closed from the first event).
+    let first = if state.uia.is_some() {
+        state.gate.on_uia_started()
+    } else {
+        GateStep::default()
+    };
+    state.apply(first);
     // The current state, so the app starts with a full picture.
     state.refresh(true, ModifierSync::Event);
     state.check_layout(true);
     state.check_displays();
-    state.send(ContextEvent::Password {
-        active: state.gate.active(),
-    });
+    let active = state.gate.app_suppressed(false);
+    state.sent_active = Some(active);
+    state.send(ContextEvent::Password { active });
     STATE.with(|cell| *cell.borrow_mut() = Some(state));
     status.running.store(true, Ordering::Release);
 

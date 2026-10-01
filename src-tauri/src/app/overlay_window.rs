@@ -14,18 +14,27 @@
 //!   focus on SolidWorks must be confirmed on Windows (stack.md F.2).
 //! * Never hidden at the OS level afterwards: the renderer draws nothing
 //!   when `AppState.native_visible` is false. Turning the overlay off, or a
-//!   new monitor rectangle, closes the window and builds a new one.
+//!   new monitor rectangle or scale, closes the window and builds a new one.
+//! * A DPI change (the monitor's scale changed, or Windows moved the window
+//!   onto another monitor) makes tao resize the window to keep its logical
+//!   size (`WM_DPICHANGED`), which would push a full-monitor overlay past the
+//!   monitor's edges. The window puts its physical rectangle back right
+//!   after; the shell's monitor poll then sees the new scale and builds a
+//!   new window.
 //! * Capture exclusion goes only through `platform::set_capture_excluded`,
 //!   which refuses below Windows build 19041.
 //!
 //! Every function that touches the window runs on the main thread.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::thread;
 
 use keystage_core::ipc::Monitor;
 use keystage_core::{MonitorRect, Settings};
 use parking_lot::Mutex;
-use tauri::{Manager, PhysicalPosition, PhysicalSize, Runtime, WebviewUrl, WebviewWindowBuilder};
+use tauri::{
+    Manager, PhysicalPosition, PhysicalSize, Runtime, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+};
 
 use crate::platform;
 
@@ -36,7 +45,7 @@ pub const LABEL_PREFIX: &str = "overlay-";
 pub const URL: &str = "overlay.html?host=native&route=all";
 
 /// Where Host A goes.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Placement {
     /// GDI device name of the monitor.
     pub monitor: String,
@@ -44,6 +53,10 @@ pub struct Placement {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    /// The monitor's scale (1.0 = 96 DPI). The rectangle is in physical
+    /// pixels and stays the same when only the scale changes, so the scale
+    /// is part of the placement: a new scale builds a new window.
+    pub scale: f64,
 }
 
 impl Placement {
@@ -92,11 +105,12 @@ pub fn placement(monitors: &[Monitor], settings: &Settings) -> Option<Placement>
         y: m.y,
         width: m.width,
         height: m.height,
+        scale: m.scale,
     })
 }
 
 /// What reconciling has to do.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Step {
     Nothing,
     Close,
@@ -238,6 +252,7 @@ fn build<R: Runtime>(app: &tauri::AppHandle<R>, label: &str, p: &Placement) -> R
     platform::install_overlay_guard(&w).map_err(|e| e.to_string())?;
     w.set_ignore_cursor_events(true)
         .map_err(|e| e.to_string())?;
+    keep_rect_on_dpi_change(&w, p);
     place(&w, p)?;
     w.show().map_err(|e| e.to_string())?;
     // Moving onto a monitor with another DPI can make Windows resize the
@@ -245,6 +260,42 @@ fn build<R: Runtime>(app: &tauri::AppHandle<R>, label: &str, p: &Placement) -> R
     place(&w, p)?;
     platform::reassert_topmost(&w).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Puts the physical rectangle back after a DPI change. tao handles
+/// `WM_DPICHANGED` by sending `ScaleFactorChanged` and then calling
+/// `SetWindowPos` with the size that keeps the logical size (tao 0.37.1
+/// `event_loop.rs`, `WM_DPICHANGED`); Tauri hands listeners a copy of that
+/// size, so they cannot change it. And a window call made on the main
+/// thread runs at once (tauri-runtime-wry 2.12.1 `send_user_message`), so
+/// placing from the handler would be undone by tao's own call. The handler
+/// therefore places from a worker thread: its calls are queued to the main
+/// thread and run after tao has finished with the message.
+fn keep_rect_on_dpi_change<R: Runtime>(w: &tauri::WebviewWindow<R>, p: &Placement) {
+    let app = w.app_handle().clone();
+    let label = w.label().to_string();
+    let p = p.clone();
+    w.on_window_event(move |ev| {
+        if !matches!(ev, WindowEvent::ScaleFactorChanged { .. }) {
+            return;
+        }
+        let app = app.clone();
+        let label = label.clone();
+        let p = p.clone();
+        let spawned = thread::Builder::new()
+            .name("keystage-overlay-place".into())
+            .spawn(move || {
+                // A window closed meanwhile is not looked up again.
+                if let Some(w) = app.get_webview_window(&label) {
+                    if let Err(e) = place(&w, &p) {
+                        tracing::warn!(error = %e, "overlay window not placed after a DPI change");
+                    }
+                }
+            });
+        if spawned.is_err() {
+            tracing::warn!("overlay window not placed after a DPI change: no thread");
+        }
+    });
 }
 
 fn place<R: Runtime>(w: &tauri::WebviewWindow<R>, p: &Placement) -> Result<(), String> {
@@ -315,6 +366,7 @@ mod tests {
             y: 0,
             width: 1920,
             height: 1080,
+            scale: 1.0,
         };
         let b = Placement {
             width: 2560,
@@ -325,6 +377,33 @@ mod tests {
         assert_eq!(plan(None, Some(&a)), Step::Create(a.clone()));
         assert_eq!(plan(Some(&a), Some(&a)), Step::Nothing);
         assert_eq!(plan(Some(&a), Some(&b)), Step::Recreate(b.clone()));
+    }
+
+    #[test]
+    fn a_new_scale_alone_builds_a_new_window() {
+        // 2560 x 1440 switched from 100 % to 125 %: the physical rectangle
+        // stays, the scale changes (tao has resized the window meanwhile).
+        let mut ms = vec![Monitor {
+            id: "\\\\.\\DISPLAY1".into(),
+            name: "DISPLAY1".into(),
+            x: 0,
+            y: 0,
+            width: 2560,
+            height: 1440,
+            scale: 1.0,
+            primary: true,
+        }];
+        let s = Settings::default();
+        let before = placement(&ms, &s).expect("placed");
+        ms[0].scale = 1.25;
+        let after = placement(&ms, &s).expect("placed");
+        assert_eq!(before.rect(), after.rect());
+        assert_eq!(after.scale, 1.25);
+        assert_eq!(
+            plan(Some(&before), Some(&after)),
+            Step::Recreate(after.clone())
+        );
+        assert_eq!(plan(Some(&after), Some(&after)), Step::Nothing);
     }
 
     #[test]

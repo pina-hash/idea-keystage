@@ -6,6 +6,11 @@
 //! [`InputShared::dropped`], and unpark the consumer thread. The consumer
 //! owns the one [`InputReceiver`] and calls [`InputReceiver::drain_into`]
 //! whenever it wakes.
+//!
+//! Each record carries the password hold word the hook procedure read
+//! ([`super::hold`]). The receiver keeps records back while the watcher has
+//! not classified a new focus yet, drops them when it is a password field,
+//! and hands them out in order otherwise.
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -14,6 +19,7 @@ use crossbeam_queue::ArrayQueue;
 use keystage_core::{InputEvent, Mod, PhysKey, Side};
 
 use super::convert::{self, RawEvent, TimeRebaser};
+use super::hold::{HoldFilter, PasswordHold};
 
 /// Capacity of the preallocated queue: about 16 seconds of a 1000 Hz mouse
 /// with the pipeline stalled.
@@ -115,6 +121,8 @@ impl InputShared {
 /// The consumer side of the input hooks. Owned by the pipeline thread.
 pub struct InputReceiver {
     shared: Arc<InputShared>,
+    hold: &'static PasswordHold,
+    filter: HoldFilter,
     rebaser: TimeRebaser,
     now: fn() -> u64,
     fill_scan: fn(u16) -> Option<PhysKey>,
@@ -124,12 +132,15 @@ pub struct InputReceiver {
 impl InputReceiver {
     pub(crate) fn new(
         shared: Arc<InputShared>,
+        hold: &'static PasswordHold,
         now: fn() -> u64,
         fill_scan: fn(u16) -> Option<PhysKey>,
         read_held: fn() -> Option<Vec<(Mod, Side)>>,
     ) -> InputReceiver {
         InputReceiver {
             shared,
+            hold,
+            filter: HoldFilter::new(),
             rebaser: TimeRebaser::new(),
             now,
             fill_scan,
@@ -140,16 +151,25 @@ impl InputReceiver {
     /// Moves every queued record into `out` as core events, in order, with
     /// timestamps rebased onto [`crate::platform::now_ms`] (monotonic).
     /// Records that carry nothing the core uses are skipped. While paused,
-    /// queued records are discarded. After the hooks were (re)installed it
+    /// queued records are discarded. Records stamped while the password
+    /// check of a new focus was pending are kept back until the watcher
+    /// classified it, then handed out (not a password) or dropped (anything
+    /// else); records stamped while a password field had the focus are
+    /// dropped ([`super::hold`]). After the hooks were (re)installed it
     /// appends an `InputEvent::ModifierResync` read with `GetAsyncKeyState`,
-    /// when the desktop is readable. Returns the number of events added.
+    /// when the desktop is readable and nothing is kept back (the resync
+    /// must follow the events it summarizes). Returns the number of events
+    /// added.
     ///
     /// Threading: call from the one consumer thread (the thread passed to
-    /// `start_input`), typically after `std::thread::park` returns.
+    /// `start_input`), typically after `std::thread::park` returns. The
+    /// watcher unparks that thread when it resolves a hold.
     pub fn drain_into(&mut self, out: &mut Vec<InputEvent>) -> usize {
         let now = (self.now)();
         let fill = self.fill_scan;
-        let mut added = 0;
+        let hold = self.hold;
+        // What the watcher resolved since the last call goes first.
+        let mut added = self.filter.flush(hold, out);
         while let Some(raw) = self.shared.queue.pop() {
             if self.shared.paused.load(Ordering::Acquire) {
                 continue;
@@ -159,13 +179,15 @@ impl InputReceiver {
                 if let InputEvent::Key(k) = &ev {
                     self.shared.note_modifier(k.vk, k.down, k.t_ms);
                 }
-                out.push(ev);
-                added += 1;
+                added += self.filter.push(hold, raw.hold, ev, out);
             }
         }
-        if !self.shared.paused.load(Ordering::Acquire)
-            && self.shared.resync_pending.swap(false, Ordering::AcqRel)
-        {
+        if self.shared.paused.load(Ordering::Acquire) {
+            // Nothing recorded before a pause may come out after it.
+            self.filter.clear();
+            return added;
+        }
+        if !self.filter.is_holding() && self.shared.resync_pending.swap(false, Ordering::AcqRel) {
             if let Some(held) = (self.read_held)() {
                 // Read after every queued record was taken, then corrected
                 // for keys the hook reported before their asynchronous state
@@ -184,6 +206,11 @@ impl InputReceiver {
     /// True when nothing is queued.
     pub fn is_empty(&self) -> bool {
         self.shared.queue.is_empty()
+    }
+
+    /// True while records are kept back for a pending password check.
+    pub fn is_holding(&self) -> bool {
+        self.filter.is_holding()
     }
 
     /// Records lost to a full queue since start (should stay 0).
@@ -222,9 +249,14 @@ mod tests {
         None
     }
 
+    /// A hold of its own for each test (the tests run in parallel).
+    fn open_hold() -> &'static PasswordHold {
+        Box::leak(Box::new(PasswordHold::new()))
+    }
+
     fn receiver() -> (Arc<InputShared>, InputReceiver) {
         let shared = Arc::new(InputShared::new());
-        let rx = InputReceiver::new(shared.clone(), now, fill, held);
+        let rx = InputReceiver::new(shared.clone(), open_hold(), now, fill, held);
         (shared, rx)
     }
 
@@ -332,7 +364,7 @@ mod tests {
         assert_eq!(rx.drain_into(&mut out), 1);
         // An unreadable desktop gives no resync, and the request is spent.
         let shared = Arc::new(InputShared::new());
-        let mut rx = InputReceiver::new(shared.clone(), now, fill, unreadable);
+        let mut rx = InputReceiver::new(shared.clone(), open_hold(), now, fill, unreadable);
         shared.request_resync();
         assert_eq!(rx.drain_into(&mut out), 0);
         assert!(!shared.resync_pending.load(Ordering::Acquire));
@@ -380,6 +412,91 @@ mod tests {
             shared.reconcile_held(&[(Mod::Ctrl, Side::Left)], NOW),
             vec![(Mod::Ctrl, Side::Left)]
         );
+    }
+
+    /// PRIV-1: keys typed after a focus change and before UI Automation's
+    /// late "password" verdict never come out, and the pending modifier
+    /// resync waits for them.
+    #[test]
+    fn keys_typed_before_a_late_password_verdict_never_come_out() {
+        use crate::platform::hold::{HoldMode, Outcome};
+        let hold = open_hold();
+        let shared = Arc::new(InputShared::new());
+        let mut rx = InputReceiver::new(shared.clone(), hold, now, fill, held);
+        let t = NOW as u32;
+        // Tab, typed in the user name field, is shown.
+        shared
+            .record(RawEvent::key(msg::WM_KEYDOWN, 0x09, 0x0F, 0, t - 40).with_hold(hold.stamp()));
+        // The focus moved to the password field; no verdict yet.
+        let pending = hold.publish(HoldMode::Hold, Outcome::Drop);
+        for (i, (code, scan)) in [(0x50u32, 0x19u32), (0x41, 0x1E), (0x53, 0x1F)]
+            .into_iter()
+            .enumerate()
+        {
+            let at = t - 30 + 2 * i as u32;
+            shared.record(RawEvent::key(msg::WM_KEYDOWN, code, scan, 0, at).with_hold(pending));
+            shared.record(
+                RawEvent::key(msg::WM_KEYUP, code, scan, flags::LLKHF_UP, at + 1)
+                    .with_hold(pending),
+            );
+        }
+        shared.request_resync();
+        let mut out = Vec::new();
+        assert_eq!(rx.drain_into(&mut out), 1, "only the Tab");
+        assert!(matches!(&out[0], InputEvent::Key(k) if k.vk == 0x09 && k.down));
+        assert!(rx.is_holding());
+        assert!(
+            shared.resync_pending.load(Ordering::Acquire),
+            "the resync waits for the held events"
+        );
+        // The late verdict: a password field.
+        hold.publish(HoldMode::Drop, Outcome::Drop);
+        out.clear();
+        assert_eq!(rx.drain_into(&mut out), 1);
+        assert!(
+            matches!(&out[..], [InputEvent::ModifierResync { .. }]),
+            "{out:?}"
+        );
+        assert!(!rx.is_holding());
+    }
+
+    #[test]
+    fn keys_held_for_a_focus_change_come_out_in_order_when_not_a_password() {
+        use crate::platform::hold::{HoldMode, Outcome};
+        let hold = open_hold();
+        let shared = Arc::new(InputShared::new());
+        let mut rx = InputReceiver::new(shared.clone(), hold, now, fill, held);
+        let t = NOW as u32;
+        let pending = hold.publish(HoldMode::Hold, Outcome::Drop);
+        shared.record(RawEvent::key(msg::WM_KEYDOWN, 0x41, 0x1E, 0, t - 20).with_hold(pending));
+        let mut out = Vec::new();
+        assert_eq!(rx.drain_into(&mut out), 0);
+        let open = hold.publish(HoldMode::Open, Outcome::Release);
+        shared.record(
+            RawEvent::key(msg::WM_KEYUP, 0x41, 0x1E, flags::LLKHF_UP, t - 10).with_hold(open),
+        );
+        assert_eq!(rx.drain_into(&mut out), 2);
+        assert!(matches!(&out[0], InputEvent::Key(k) if k.down && k.t_ms == NOW - 20));
+        assert!(matches!(&out[1], InputEvent::Key(k) if !k.down && k.t_ms == NOW - 10));
+    }
+
+    #[test]
+    fn a_pause_forgets_held_records() {
+        use crate::platform::hold::{HoldMode, Outcome};
+        let hold = open_hold();
+        let shared = Arc::new(InputShared::new());
+        let mut rx = InputReceiver::new(shared.clone(), hold, now, fill, held);
+        let pending = hold.publish(HoldMode::Hold, Outcome::Drop);
+        shared.record(RawEvent::key(msg::WM_KEYDOWN, 0x41, 0x1E, 0, NOW as u32).with_hold(pending));
+        let mut out = Vec::new();
+        assert_eq!(rx.drain_into(&mut out), 0);
+        assert!(rx.is_holding());
+        shared.paused.store(true, Ordering::Release);
+        assert_eq!(rx.drain_into(&mut out), 0);
+        assert!(!rx.is_holding());
+        shared.paused.store(false, Ordering::Release);
+        hold.publish(HoldMode::Open, Outcome::Release);
+        assert_eq!(rx.drain_into(&mut out), 0, "nothing from before the pause");
     }
 
     #[test]

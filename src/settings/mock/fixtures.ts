@@ -19,6 +19,7 @@ export const SCENARIOS = [
 	'first-run',
 	'import-warnings',
 	'empty',
+	'notices',
 ] as const;
 export type Scenario = (typeof SCENARIOS)[number];
 
@@ -28,6 +29,25 @@ export function scenarioFrom(search: string): Scenario {
 }
 
 export const MOCK_VERSION = '0.1.0';
+
+/** `Status.notices` in the `notices` scenario, worded as the app shell words them. */
+export const MOCK_NOTICES: readonly string[] = [
+	'Password field and app detection did not start (Access is denied.), so nothing is shown. Restart IDEA Keystage.',
+	'The session log could not be saved in C:\\Users\\Teacher\\OneDrive\\Documents\\IDEA Keystage\\Sessions: Windows denied access. It is kept until the app quits.',
+	'The chapter marker hotkey (Ctrl+Alt+Shift+M) is not active: Another program or Windows already uses this shortcut. Choose another one.',
+];
+
+/**
+ * `session_export` warnings, worded as keystage-session's
+ * `ExportWarning::message()`. The mock sessions have no OBS timing, so every
+ * timed export carries the first one.
+ */
+export const MOCK_EXPORT_WARNINGS = {
+	sessionClock:
+		'OBS timing was not available, so times count from the start of the session log. They match the video only if recording started at the same moment.',
+	fewChapters: (count: number) =>
+		`YouTube shows chapters only when there are at least 3, starting at 00:00. This list has ${count}. Add chapter markers while recording.`,
+} as const;
 export const MOCK_DOCS = 'C:\\Users\\Teacher\\Documents';
 /** A stand-in for a DPAPI blob: base64 text, never a password. */
 export const MOCK_DPAPI_BLOB = 'AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAkzI0dW5sb2NrZWQ=';
@@ -221,6 +241,7 @@ export function mockStatus(scenario: Scenario, settings: Settings, now: number):
 			: null,
 		hook: { installed: scenario !== 'paused', dropped: 0 },
 		version: MOCK_VERSION,
+		notices: [],
 	};
 	if (scenario === 'obs-error') {
 		base.obs = {
@@ -229,6 +250,12 @@ export function mockStatus(scenario: Scenario, settings: Settings, now: number):
 			error: 'OBS did not accept the password (close code 4009). Save the password again.',
 			recording: null,
 		};
+	}
+	if (scenario === 'notices') {
+		// What the app says when parts of it could not start or save: app
+		// detection failed, so it fails closed and shows nothing.
+		base.suppressed = 'excluded';
+		base.notices = [...MOCK_NOTICES];
 	}
 	if (scenario === 'port-busy') {
 		base.server = {

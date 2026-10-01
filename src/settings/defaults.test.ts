@@ -10,6 +10,7 @@ import {
 	clone,
 	defaultDisplayRules,
 	defaultSettings,
+	normalizeExportResult,
 	normalizeSettings,
 	normalizeStatus,
 	sameJson,
@@ -206,6 +207,44 @@ describe('normalizeStatus', () => {
 		const s = normalizeStatus({ suppressed: 'KeePass.exe', obs: { state: 'weird' } });
 		expect(s.suppressed).toBeNull();
 		expect(s.obs.state).toBe('off');
+	});
+
+	it('keeps the notices the app adds to the status', () => {
+		expect(normalizeStatus({}).notices).toEqual([]);
+		expect(normalizeStatus({ notices: 'not a list' }).notices).toEqual([]);
+		const s = normalizeStatus({
+			notices: [
+				' Keyboard and mouse capture did not start (x). Restart IDEA Keystage. ',
+				7,
+				'',
+				null,
+				'Starting with Windows could not be turned on.',
+				'Starting with Windows could not be turned on.',
+			],
+		});
+		expect(s.notices).toEqual([
+			'Keyboard and mouse capture did not start (x). Restart IDEA Keystage.',
+			'Starting with Windows could not be turned on.',
+		]);
+	});
+});
+
+describe('normalizeExportResult', () => {
+	it('keeps the path and the warnings of a session export', () => {
+		expect(
+			normalizeExportResult(
+				{ path: 'C:\\a.srt', warnings: ['Times count from the session log.', 3] },
+				'C:\\b.srt'
+			)
+		).toEqual({ path: 'C:\\a.srt', warnings: ['Times count from the session log.'] });
+	});
+
+	it('fills an older reply that has no warnings', () => {
+		expect(normalizeExportResult({ path: 'C:\\a.srt' }, 'C:\\b.srt')).toEqual({
+			path: 'C:\\a.srt',
+			warnings: [],
+		});
+		expect(normalizeExportResult(null, 'C:\\b.srt')).toEqual({ path: 'C:\\b.srt', warnings: [] });
 	});
 });
 

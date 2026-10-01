@@ -5,6 +5,7 @@ import {
 	COMMANDS,
 	IpcError,
 	KeystageIpc,
+	SETTINGS_EVENT,
 	connectIpc,
 	errorMessage,
 	hasTauriRuntime,
@@ -149,6 +150,40 @@ describe('command names and argument shapes (ARCHITECTURE.md section 12)', () =>
 		const { ipc } = recorder(() => null);
 		expect(await ipc.listMonitors()).toEqual([]);
 		expect(await ipc.sessionsList()).toEqual([]);
+	});
+
+	it('keeps the notices of a status and the warnings of an export', async () => {
+		const { ipc } = recorder((cmd) =>
+			cmd === 'session_export'
+				? { path: 'C:\\c.txt', warnings: ['This session holds 2 recordings.'] }
+				: { notices: ['Starting with Windows could not be turned on.'] }
+		);
+		expect((await ipc.getStatus()).notices).toEqual([
+			'Starting with Windows could not be turned on.',
+		]);
+		expect(await ipc.sessionExport('s1', 'chapters', 'C:\\c.txt')).toEqual({
+			path: 'C:\\c.txt',
+			warnings: ['This session holds 2 recordings.'],
+		});
+	});
+
+	it('listens for keystage://settings', async () => {
+		const events: string[] = [];
+		let fire: ((p: unknown) => void) | null = null;
+		const backend: Backend = {
+			...recorder().ipc.backend,
+			listen: async (event, handler) => {
+				events.push(event);
+				fire = handler;
+				return () => {};
+			},
+		};
+		let heard = 0;
+		await new KeystageIpc(backend).onSettingsChanged(() => (heard += 1));
+		expect(events).toEqual([SETTINGS_EVENT]);
+		expect(SETTINGS_EVENT).toBe('keystage://settings');
+		fire!({ anything: true });
+		expect(heard).toBe(1);
 	});
 });
 

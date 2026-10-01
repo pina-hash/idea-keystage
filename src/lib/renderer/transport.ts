@@ -260,13 +260,23 @@ export interface TauriApi {
 	invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
 }
 
-async function loadTauriApi(): Promise<TauriApi> {
-	const [ev, core] = await Promise.all([
-		import('@tauri-apps/api/event'),
+/**
+ * The real Tauri API for this page. Events are heard on THIS window only
+ * (target `WebviewWindow { label }`), never with the `@tauri-apps/api/event`
+ * default target `Any`: Tauri hands an emit to every `Any` listener whatever
+ * the emitter's filter says, so a global listener would defeat the app's
+ * per-window filter (`wants_overlay_event`: Host A only while it is open, the
+ * settings preview only while it can be seen). A plain `emit` (no filter, such
+ * as `keystage://status`) still reaches a window-scoped listener.
+ */
+export async function loadTauriApi(): Promise<TauriApi> {
+	const [win, core] = await Promise.all([
+		import('@tauri-apps/api/webviewWindow'),
 		import('@tauri-apps/api/core'),
 	]);
+	const self = win.getCurrentWebviewWindow();
 	return {
-		listen: (event, handler) => ev.listen(event, (e) => handler({ payload: e.payload })),
+		listen: (event, handler) => self.listen(event, (e) => handler({ payload: e.payload })),
 		invoke: (cmd, args) => core.invoke(cmd, args),
 	};
 }

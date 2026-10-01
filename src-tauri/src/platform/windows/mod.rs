@@ -36,6 +36,7 @@ use windows::Win32::Foundation::HWND;
 pub use hooks::{start_input, InputHandle};
 pub use watcher::{start_watcher, WatcherHandle};
 
+use super::hold::PasswordHold;
 use super::{secret, ForegroundInfo, LegendTable, ModifierSnapshot, PlatformError};
 
 /// Set by the watcher while the foreground is elevated or unidentified: the
@@ -49,6 +50,11 @@ pub(crate) static SESSION_LOCKED: AtomicBool = AtomicBool::new(false);
 /// The foreground keyboard layout (HKL bits) as last seen by the watcher;
 /// 0 until known. Used to fill scan codes of injected keys.
 pub(crate) static CURRENT_HKL: AtomicIsize = AtomicIsize::new(0);
+
+/// The password hold ([`super::hold`]): the watcher publishes it, the hook
+/// procedures stamp every record with it (one atomic load), the input
+/// receiver holds or drops records by it.
+pub(crate) static PASSWORD_HOLD: PasswordHold = PasswordHold::new();
 
 /// True when a `GetAsyncKeyState` read can be trusted right now.
 pub(crate) fn desktop_readable() -> bool {

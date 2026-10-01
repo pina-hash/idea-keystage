@@ -3,7 +3,13 @@
  * for it), and the SolidWorks profile data is loaded lazily again, only by
  * the scripts that show SolidWorks captions.
  */
-import { defaultOverlayConfig, APP_NAME, PROTOCOL_VERSION, type Route } from '../protocol';
+import {
+	defaultOverlayConfig,
+	APP_NAME,
+	PROTOCOL_VERSION,
+	type OverlayConfig,
+	type Route,
+} from '../protocol';
 import type { DemoScriptId } from '../renderer/options';
 import type { DemoScript } from '../renderer/transport';
 import { asProfileData, type ProfileData } from './profile-data';
@@ -39,10 +45,7 @@ export function buildDemoScript(
 	if (id === 'states') statesSegment(t);
 	t.emit(stateMsg({ profile: null }));
 
-	const config = defaultOverlayConfig();
-	// The all-in-one demo shows every piece.
-	config.keyboard.enabled = true;
-	config.cursor.enabled = true;
+	const config = demoOverlayConfig(route);
 	return {
 		hello: {
 			t: 'hello',
@@ -56,6 +59,31 @@ export function buildDemoScript(
 		steps: t.build(),
 		durationMs: Math.round(t.t + LOOP_GAP_MS),
 	};
+}
+
+/**
+ * The config the demo's hello carries: the defaults with every piece on.
+ *
+ * On `all`, where the pieces share one page, the demo also sets a composition
+ * in which nothing has to move out of the way at 1080p and 4K (scale 1 or
+ * 2): a tenkeyless keyboard with the mouse at bottom-left, and the callouts at
+ * bottom-right. The full keyboard with the mouse (1045 px at size m) reaches
+ * past the middle of a 1920 px page, so with the callouts at bottom center
+ * the stage has to lift them above it (layout.ts calloutsOffsetY). Every key
+ * the demo presses is on the tenkeyless drawing (checked in demo.test.ts).
+ * The dedicated routes keep the defaults, so a `keys` or `keyboard` source
+ * shows the demo in the box its recommended size was computed for.
+ */
+export function demoOverlayConfig(route: Route): OverlayConfig {
+	const config = defaultOverlayConfig();
+	config.keyboard.enabled = true;
+	config.cursor.enabled = true;
+	if (route === 'all') {
+		config.keyboard.layout = 'tkl';
+		config.callouts.anchor = 'bottom-right';
+		config.callouts.offset_x = 32;
+	}
+	return config;
 }
 
 function stateMsgState() {

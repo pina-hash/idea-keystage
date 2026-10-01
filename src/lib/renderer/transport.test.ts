@@ -1,13 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { clearMocks, mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { defaultAppState, defaultOverlayConfig, type ServerMsg } from '../protocol';
 import type { ConnectionStatus } from './engine';
 import {
 	DEMO_LOOP_ID_STRIDE,
 	DemoTransport,
+	HELLO_COMMAND,
+	OVERLAY_EVENT,
 	TauriTransport,
 	WsTransport,
 	backoffDelay,
 	createTransport,
+	loadTauriApi,
 	type DemoScript,
 	type SocketLike,
 	type TauriApi,
@@ -274,6 +278,69 @@ describe('TauriTransport', () => {
 		const r = recorder();
 		t.start(r.sink);
 		expect(r.statuses).toEqual(['connecting', 'failed']);
+	});
+});
+
+describe('loadTauriApi (the real @tauri-apps/api, mocked IPC)', () => {
+	afterEach(() => {
+		clearMocks();
+		// Leave no Tauri globals behind for the tests that check `hasTauri`.
+		const g = globalThis as Record<string, unknown>;
+		delete g.__TAURI_INTERNALS__;
+		delete g.__TAURI_EVENT_PLUGIN_INTERNALS__;
+	});
+
+	it('listens on its own window, so the app can filter what each window gets', async () => {
+		mockWindows('overlay-1');
+		const calls: { cmd: string; args: Record<string, unknown> }[] = [];
+		mockIPC((cmd, args) => {
+			calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+			if (cmd === 'plugin:event|listen') return 7;
+			if (cmd === 'overlay_hello') return HELLO;
+			return null;
+		});
+		const api = await loadTauriApi();
+		const got: unknown[] = [];
+		const un = await api.listen(OVERLAY_EVENT, (ev) => got.push(ev.payload));
+
+		const listen = calls.find((c) => c.cmd === 'plugin:event|listen');
+		expect(listen?.args.event).toBe('keystage://overlay');
+		// Never `{ kind: 'Any' }`: Tauri delivers every emit to an Any listener
+		// whatever filter the app passes to emit_str_filter.
+		expect(listen?.args.target).toEqual({ kind: 'WebviewWindow', label: 'overlay-1' });
+
+		// What Tauri calls when the app's filter lets the message through.
+		const internals = (
+			globalThis as unknown as {
+				__TAURI_INTERNALS__: { runCallback(id: unknown, data: unknown): void };
+			}
+		).__TAURI_INTERNALS__;
+		internals.runCallback(listen?.args.handler, {
+			event: OVERLAY_EVENT,
+			id: 7,
+			payload: { t: 'clear' },
+		});
+		expect(got).toEqual([{ t: 'clear' }]);
+
+		await expect(api.invoke(HELLO_COMMAND)).resolves.toEqual(HELLO);
+		un();
+		await Promise.resolve();
+		expect(calls.some((c) => c.cmd === 'plugin:event|unlisten')).toBe(true);
+	});
+
+	it('uses the settings window label in the settings window', async () => {
+		mockWindows('settings');
+		let target: unknown = null;
+		mockIPC((cmd, args) => {
+			if (cmd === 'plugin:event|listen') {
+				target = (args as Record<string, unknown>).target;
+				return 1;
+			}
+			return null;
+		});
+		const api = await loadTauriApi();
+		await api.listen(OVERLAY_EVENT, () => {});
+		expect(target).toEqual({ kind: 'WebviewWindow', label: 'settings' });
 	});
 });
 

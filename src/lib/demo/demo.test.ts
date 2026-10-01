@@ -2,8 +2,25 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { isServerMsg, type Callout, type ServerMsg } from '../protocol';
-import { buildDemoScript } from './index';
+import {
+	defaultOverlayConfig,
+	isServerMsg,
+	type Callout,
+	type OverlayConfig,
+	type Route,
+	type ServerMsg,
+} from '../protocol';
+import { CLEARANCE_PX, calloutsOffsetY, placedBox } from '../renderer/layout';
+import {
+	CALLOUT_GEOMETRY,
+	CALLOUT_UNIT_PX,
+	KEYBOARD_UNIT_PX,
+	calloutHeightU,
+} from '../renderer/metrics';
+import { keyboardDrawingSize, mouseDrawingSize } from '../renderer/sizes';
+import { getLayout } from '../renderer/keyboard/layouts';
+import { indexLayout, resolveKey } from '../renderer/keyboard/model';
+import { buildDemoScript, demoOverlayConfig } from './index';
 import {
 	asProfileData,
 	captionForKeys,
@@ -208,4 +225,74 @@ describe('demo scripts', () => {
 	it('needs the data for the SolidWorks scripts', () => {
 		expect(() => buildDemoScript('solidworks', 'keys', null)).toThrow();
 	});
+});
+
+describe('the demo composition', () => {
+	function helloConfig(route: Route): OverlayConfig {
+		const hello = buildDemoScript('tour', route, solidworks).hello;
+		if (hello.t !== 'hello') throw new Error('the demo starts with a hello');
+		return hello.config;
+	}
+
+	it('turns every piece on and keeps the defaults on the dedicated routes', () => {
+		for (const route of ['keys', 'keyboard', 'mouse', 'cursor'] as const) {
+			const c = helloConfig(route);
+			const d = defaultOverlayConfig();
+			expect(c.callouts).toEqual(d.callouts);
+			expect(c.keyboard).toEqual({ ...d.keyboard, enabled: true });
+			expect(c.cursor.enabled).toBe(true);
+		}
+		expect(helloConfig('all')).toEqual(demoOverlayConfig('all'));
+	});
+
+	it.each([
+		['1080p at scale 1', { width: 1920, height: 1080 }, 1],
+		['4K at scale 1', { width: 3840, height: 2160 }, 1],
+		['4K at scale 2', { width: 3840, height: 2160 }, 2],
+	] as const)('on all, nothing has to move out of the way at %s', (_name, stage, scale) => {
+		const c = helloConfig('all');
+		const kbSize = keyboardDrawingSize(c.keyboard, KEYBOARD_UNIT_PX[c.keyboard.size] * scale);
+		const others = { keyboard: kbSize, mouse: c.mouse.enabled ? mouseDrawingSize(scale) : null };
+		// The callouts stay where the config puts them...
+		expect(calloutsOffsetY(c, others, stage, scale)).toBe(c.callouts.offset_y);
+		// ...and the widest, tallest stack they may draw misses the keyboard.
+		const u = CALLOUT_UNIT_PX[c.callouts.size] * scale;
+		const g = CALLOUT_GEOMETRY;
+		const n = c.callouts.max_stack;
+		const stack = placedBox(
+			c.callouts.anchor,
+			c.callouts.offset_x,
+			c.callouts.offset_y,
+			scale,
+			{
+				width: g.maxWidthU * u,
+				height: (n * calloutHeightU(c.callouts.captions) + (n - 1) * g.stackGapU) * u,
+			},
+			stage
+		);
+		const kb = placedBox(
+			c.keyboard.anchor,
+			c.keyboard.offset_x,
+			c.keyboard.offset_y,
+			scale,
+			kbSize,
+			stage
+		);
+		expect(stack.left).toBeGreaterThan(kb.right + CLEARANCE_PX * scale);
+	});
+
+	it.each(['tour', 'solidworks', 'general', 'states'] as const)(
+		'every key the %s demo presses on all is on the keyboard it draws',
+		(id) => {
+			const c = helloConfig('all');
+			const index = indexLayout(getLayout(c.keyboard.layout));
+			const keys = buildDemoScript(id, 'all', solidworks).steps.flatMap((s) =>
+				s.msg.t === 'key' ? [s.msg] : []
+			);
+			const missing = keys
+				.filter((k) => resolveKey(index, k.phys, k.key) === null)
+				.map((k) => k.key);
+			expect(missing).toEqual([]);
+		}
+	);
 });

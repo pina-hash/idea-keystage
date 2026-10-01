@@ -2,9 +2,11 @@
 // Host B latency and resource harness (OBS Browser Source path).
 //
 //   node scripts/perf.mjs [--idle-seconds=60] [--rate=20] [--duration=10]
-//                         [--channel=chromium|headless-shell] [--build] [--out=.work/perf]
+//                         [--channel=chromium|headless-shell] [--build] [--dist=dist]
+//                         [--out=.work/perf]
 //
-// 1. Builds dist/ if it is missing (--build rebuilds it) and the demo server
+// 1. Builds dist/ if it is missing (--build rebuilds it; --dist=<folder>
+//    builds a private copy there instead) and the demo server
 //    (cargo build --release -p keystage-server --example demo).
 // 2. Idle: the demo serves only its hello (--script idle); /overlay/keys is
 //    open in Chromium. CPU and memory of the demo server and of the page's
@@ -65,7 +67,7 @@ for (const [name, v] of [
 }
 
 mkdirSync(OUT, { recursive: true });
-ensureFrontEnd({ force: args.build === 'true' });
+const DIST = ensureFrontEnd({ force: args.build === 'true', outDir: args.dist ?? 'dist' });
 const demoExe = buildDemo();
 const clkTck = clockTicks();
 
@@ -120,7 +122,7 @@ const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor
 
 /* ---------------------------------------------------------------- idle */
 console.log(`idle: demo --script idle, /overlay/keys open, sampling ${IDLE_SECONDS} s`);
-const idleDemo = await startDemo(demoExe, ['--script', 'idle']);
+const idleDemo = await startDemo(demoExe, ['--script', 'idle'], { dist: DIST });
 const idle = await openOverlay(context, idleDemo.port, { probe: false });
 if (!idle.renderer) throw new Error('could not find the renderer process of the page');
 await sleep(2000);
@@ -147,15 +149,11 @@ await idleDemo.kill();
 
 /* --------------------------------------------------------------- burst */
 console.log(`burst: demo --script burst --perf --rate ${RATE} --duration ${DURATION}`);
-const burstDemo = await startDemo(demoExe, [
-	'--script',
-	'burst',
-	'--perf',
-	'--rate',
-	String(RATE),
-	'--duration',
-	String(DURATION),
-]);
+const burstDemo = await startDemo(
+	demoExe,
+	['--script', 'burst', '--perf', '--rate', String(RATE), '--duration', String(DURATION)],
+	{ dist: DIST }
+);
 const burst = await openOverlay(context, burstDemo.port, { probe: true });
 if (!burst.renderer) throw new Error('could not find the renderer process of the page');
 await burstDemo.waitFor('started', 15_000);

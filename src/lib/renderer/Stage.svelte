@@ -2,7 +2,9 @@
 	The renderer's composition: every piece a route shows, placed at its
 	anchor inside the stage, in the active theme. The overlay page mounts it
 	full window; the settings preview mounts it inside a box (the stage fills
-	its nearest positioned ancestor).
+	its nearest positioned ancestor). The callouts move inward, clear of the
+	keyboard and the mouse diagram, when those cover the row the stack grows
+	from (layout.ts calloutsOffsetY).
 
 	The theme's tokens and the size unit are set here, so the keyboard visual,
 	the mouse diagram and the cursor effects read the same `--ks-*` values.
@@ -17,7 +19,8 @@
 	import { resolveTheme } from '../themes/themes';
 	import { CALLOUT_UNIT_PX, KEYBOARD_UNIT_PX, MOUSE_DIAGRAM } from './metrics';
 	import { FONT_STACKS, indicatorsFor, visiblePieces } from './pieces';
-	import { anchorStyle } from './layout';
+	import { anchorStyle, calloutsOffsetY, type Size } from './layout';
+	import { keyboardDrawingSize, mouseDrawingSize } from './sizes';
 	import Callouts from './Callouts.svelte';
 	import KeyboardVisual from './keyboard/KeyboardVisual.svelte';
 	import MouseDiagram from './MouseDiagram.svelte';
@@ -59,6 +62,30 @@
 	let width = $state(1920);
 	let height = $state(1080);
 	const monitorAspect = $derived(aspect ?? (height > 0 ? width / height : 16 / 9));
+
+	// The drawn size of the keyboard and the mouse diagram, measured; until the
+	// first measurement, the box their drawing is specified to fit (metrics.ts).
+	let kbWidth = $state(0);
+	let kbHeight = $state(0);
+	let mouseWidth = $state(0);
+	let mouseHeight = $state(0);
+	function measured(w: number, h: number, planned: Size): Size {
+		return w > 0 && h > 0 ? { width: w, height: h } : planned;
+	}
+	// The callouts move clear of the other pieces (layout.ts calloutsOffsetY).
+	const calloutsY = $derived(
+		calloutsOffsetY(
+			config,
+			{
+				keyboard: pieces.keyboard
+					? measured(kbWidth, kbHeight, keyboardDrawingSize(config.keyboard, kbUnit))
+					: null,
+				mouse: pieces.mouse ? measured(mouseWidth, mouseHeight, mouseDrawingSize(scale)) : null,
+			},
+			{ width, height },
+			scale
+		)
+	);
 </script>
 
 <div
@@ -81,6 +108,8 @@
 				config.keyboard.offset_y,
 				scale
 			)}
+			bind:clientWidth={kbWidth}
+			bind:clientHeight={kbHeight}
 		>
 			<KeyboardVisual
 				layout={config.keyboard.layout}
@@ -99,6 +128,8 @@
 		<div
 			class="ks-region is-mouse"
 			style={anchorStyle(config.mouse.anchor, config.mouse.offset_x, config.mouse.offset_y, scale)}
+			bind:clientWidth={mouseWidth}
+			bind:clientHeight={mouseHeight}
 		>
 			<MouseDiagram
 				buttons={store.mouse.buttons}
@@ -110,12 +141,7 @@
 	{#if pieces.callouts || indicators.length > 0}
 		<div
 			class="ks-region is-callouts"
-			style={anchorStyle(
-				config.callouts.anchor,
-				config.callouts.offset_x,
-				config.callouts.offset_y,
-				scale
-			)}
+			style={anchorStyle(config.callouts.anchor, config.callouts.offset_x, calloutsY, scale)}
 		>
 			<Callouts
 				items={pieces.callouts ? store.callouts : []}

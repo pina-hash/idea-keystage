@@ -24,7 +24,7 @@ import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { open as dialogOpen, save as dialogSave } from '@tauri-apps/plugin-dialog';
 import { openUrl as openerOpenUrl } from '@tauri-apps/plugin-opener';
 import type { ServerMsg, SolidworksMode } from '../lib/protocol';
-import { normalizeSettings, normalizeStatus } from './defaults';
+import { normalizeExportResult, normalizeSettings, normalizeStatus } from './defaults';
 import type {
 	DialogFilter,
 	ExportFormat,
@@ -89,6 +89,13 @@ export type CommandName = (typeof COMMANDS)[keyof typeof COMMANDS];
 /** Events the app emits to this window. */
 export const STATUS_EVENT = 'keystage://status';
 export const OVERLAY_EVENT = 'keystage://overlay';
+/**
+ * Addition: the stored settings changed (from the tray, a hotkey, a command
+ * or a save). Requested from the app shell in .work/notes/fix-requests.md.
+ * The payload is not read: the window reads `get_settings` in order with its
+ * own saves, so a late event can never roll it back.
+ */
+export const SETTINGS_EVENT = 'keystage://settings';
 
 /**
  * What the client needs from its host: commands, events, and the three
@@ -257,8 +264,10 @@ export class KeystageIpc {
 	async sessionRenameMarker(id: string, index: number, name: string): Promise<unknown> {
 		return this.call<unknown>(COMMANDS.sessionRenameMarker, { id, index, name });
 	}
+	/** Writes the export; `warnings` say what the user should know about it (often none). */
 	async sessionExport(id: string, format: ExportFormat, path: string): Promise<ExportResult> {
-		return this.call<ExportResult>(COMMANDS.sessionExport, { id, format, path });
+		const r = await this.call<unknown>(COMMANDS.sessionExport, { id, format, path });
+		return normalizeExportResult(r, path);
 	}
 	async sessionDelete(id: string): Promise<SessionSummary[]> {
 		const list = await this.call<unknown>(COMMANDS.sessionDelete, { id });
@@ -308,6 +317,10 @@ export class KeystageIpc {
 	/** `keystage://status`, emitted on every change. */
 	onStatus(handler: (status: Status) => void): Promise<() => void> {
 		return this.backend.listen(STATUS_EVENT, (payload) => handler(normalizeStatus(payload)));
+	}
+	/** Addition: `keystage://settings`, the stored settings changed. */
+	onSettingsChanged(handler: () => void): Promise<() => void> {
+		return this.backend.listen(SETTINGS_EVENT, () => handler());
 	}
 
 	/* --- Plugins ---------------------------------------------------------- */

@@ -23,13 +23,19 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, GetWindowLongPtrW, RegisterClassExW,
-    SetWindowLongPtrW, GWL_EXSTYLE, WNDCLASSEXW, WS_EX_APPWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, SW_SHOWNOACTIVATE, WNDCLASSEXW, WS_EX_APPWINDOW,
+    WS_EX_TOPMOST, WS_POPUP,
 };
 
 use super::super::display::{OVERLAY_EX_STYLE_OFF, OVERLAY_EX_STYLE_ON};
+use super::super::hold::HoldMode;
 use super::super::{ContextEvent, PlatformError};
 use super::os::running_under_wine;
 use super::*;
+
+/// The hooks and the watcher are one per process and share the password
+/// hold; tests that start them run one at a time.
+static SERIAL: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 #[test]
 fn clock_and_build() {
@@ -178,6 +184,10 @@ fn overlay_guard_keeps_the_overlay_styles() {
         .expect("thread");
         assert!(matches!(other, Err(PlatformError::WrongThread(_))));
 
+        // The real overlay is visible whenever it is put on top. Windows
+        // (unlike Wine) does not mark a never-shown window topmost, which is
+        // what this test window was until here (windows-latest, 2026-10-01).
+        let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
         window_style::reassert_topmost(hwnd).expect("topmost");
         assert_ne!(ex_style(hwnd) & WS_EX_TOPMOST.0, 0);
         // The watcher's variant targets the guarded window from any thread.
@@ -263,6 +273,7 @@ fn wait_for(cond: impl Fn() -> bool, timeout: Duration) -> bool {
 
 #[test]
 fn input_hooks_life_cycle_with_an_injected_key() {
+    let _serial = SERIAL.lock();
     let (handle, mut rx) = start_input(thread::current()).expect("hooks");
     assert!(handle.is_installed());
     assert!(!handle.is_paused());
@@ -322,10 +333,36 @@ fn input_hooks_life_cycle_with_an_injected_key() {
         .expect("thread");
     assert!(matches!(other, Some(PlatformError::InvalidInput(_))));
     drop(again); // the last clone stops the hooks
+
+    // With the watcher running, an injected key travels with the password
+    // hold stamp: it comes out when the focus is not a password field and
+    // never when it is (or could not be classified). (Same thread: the
+    // input consumer is fixed for the process.)
+    let (input, mut rx) = start_input(thread::current()).expect("hooks again");
+    let (watcher, _ctx) = start_watcher(thread::current()).expect("watcher");
+    assert!(
+        wait_for(
+            || PASSWORD_HOLD.mode() != HoldMode::Hold,
+            Duration::from_secs(5)
+        ),
+        "start hold resolved"
+    );
+    let mode = PASSWORD_HOLD.mode();
+    send_key(vk::F24, false);
+    send_key(vk::F24, true);
+    let keys = collect_f24(&mut rx, 2, Duration::from_secs(2));
+    match mode {
+        HoldMode::Open => assert_eq!(keys.len(), 2, "shown outside password fields"),
+        _ => assert!(keys.is_empty(), "nothing from a password field"),
+    }
+    assert!(!rx.is_holding());
+    watcher.shutdown();
+    input.shutdown();
 }
 
 #[test]
 fn watcher_reports_state_and_stops() {
+    let _serial = SERIAL.lock();
     let (handle, rx) = start_watcher(thread::current()).expect("watcher");
     assert!(handle.is_running());
     assert!(matches!(
@@ -365,8 +402,23 @@ fn watcher_reports_state_and_stops() {
     });
     assert!(got, "foreground after refresh");
 
+    // The hold started with the watcher is resolved: UI Automation
+    // answered, timed out (counted as a password) or is unavailable (Wine).
+    assert!(
+        wait_for(
+            || PASSWORD_HOLD.mode() != HoldMode::Hold,
+            Duration::from_secs(5)
+        ),
+        "start hold resolved"
+    );
+
     handle.shutdown();
     assert!(!handle.is_running());
+    assert_eq!(
+        PASSWORD_HOLD.mode(),
+        HoldMode::Open,
+        "nothing held after stop"
+    );
     assert!(matches!(
         handle.refresh(),
         Err(PlatformError::NotRunning(_))

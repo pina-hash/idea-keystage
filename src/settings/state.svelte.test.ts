@@ -13,14 +13,17 @@ const DATA = JSON.parse(
 
 const live: SettingsController[] = [];
 
-function controller(scenario: Parameters<typeof createMockBackend>[0]['scenario'] = 'normal') {
+function controller(
+	scenario: Parameters<typeof createMockBackend>[0]['scenario'] = 'normal',
+	saveDelayMs = 0
+) {
 	const backend = createMockBackend({
 		scenario,
 		latencyMs: 0,
 		liveDemo: false,
 		loadProfile: async () => DATA,
 	});
-	const ctl = new SettingsController(new KeystageIpc(backend), { saveDelayMs: 0 });
+	const ctl = new SettingsController(new KeystageIpc(backend), { saveDelayMs });
 	live.push(ctl);
 	return { ctl, backend };
 }
@@ -105,6 +108,16 @@ describe('SettingsController', () => {
 		expect(ctl.status?.keyboard_visible).toBe(false);
 	});
 
+	it('shows the notices the app adds to the status', async () => {
+		const { ctl, backend } = controller();
+		await ctl.init();
+		expect(ctl.status?.notices).toEqual([]);
+		backend.setNotices(['The session log could not be saved in C:\\x: Windows denied access.']);
+		expect(ctl.status?.notices).toEqual([
+			'The session log could not be saved in C:\\x: Windows denied access.',
+		]);
+	});
+
 	it('reports a backend that cannot load the settings', async () => {
 		const backend = createMockBackend({ scenario: 'normal', latencyMs: 0, liveDemo: false });
 		const ipc = new KeystageIpc({
@@ -125,5 +138,91 @@ describe('SettingsController', () => {
 		expect(ctl.page).toBe('sound');
 		ctl.goFromHash('#nothing');
 		expect(ctl.page).toBe('sound');
+	});
+});
+
+describe('settings the app changes itself (tray, hotkeys)', () => {
+	/** An edit made in the window from the draft it shows (as a page does). */
+	async function editSize(ctl: SettingsController, flush = true) {
+		const draft = clone(ctl.settings!);
+		draft.overlay.callouts.size = 'xl';
+		ctl.settings = draft;
+		ctl.draftChanged(clone(draft));
+		if (flush) await ctl.flush();
+	}
+
+	it('an edit never puts back a Native overlay switched off from the tray', async () => {
+		const { ctl, backend } = controller();
+		await ctl.init();
+		expect(ctl.settings!.host.native_overlay).toBe(true);
+		// An app without keystage://settings: the window hears nothing.
+		backend.changeFromApp((s) => (s.host.native_overlay = false), { settingsEvent: false });
+		expect(ctl.settings!.host.native_overlay).toBe(true);
+		await editSize(ctl);
+		const stored = backend.peek().settings;
+		expect(stored.overlay.callouts.size).toBe('xl');
+		expect(stored.host.native_overlay).toBe(false);
+		// The window now shows the real state, and says nothing about an adjustment.
+		expect(ctl.settings!.host.native_overlay).toBe(false);
+		expect(ctl.settings!.overlay.callouts.size).toBe('xl');
+		expect(ctl.toasts.some((t) => t.text.includes('adjusted'))).toBe(false);
+	});
+
+	it('follows a SolidWorks mode set by the hotkey, and the next edit keeps it', async () => {
+		const { ctl, backend } = controller();
+		await ctl.init();
+		expect(ctl.settings!.profiles.solidworks_mode).toBe('auto');
+		backend.changeFromApp((s) => (s.profiles.solidworks_mode = 'on'), { settingsEvent: false });
+		expect(ctl.status?.solidworks_mode).toBe('on');
+		// The status showed another mode, so the window read the settings again.
+		await ctl.syncFromApp();
+		expect(ctl.settings!.profiles.solidworks_mode).toBe('on');
+		await editSize(ctl);
+		expect(backend.peek().settings.profiles.solidworks_mode).toBe('on');
+		expect(backend.peek().settings.overlay.callouts.size).toBe('xl');
+	});
+
+	it('takes in keystage://settings and keeps an edit that is not saved yet', async () => {
+		const { ctl, backend } = controller('normal', 60_000);
+		await ctl.init();
+		await editSize(ctl, false);
+		expect(ctl.saveState).toBe('pending');
+		backend.changeFromApp((s) => {
+			s.host.native_overlay = false;
+			s.profiles.solidworks_mode = 'off';
+		});
+		await ctl.syncFromApp();
+		expect(ctl.settings!.host.native_overlay).toBe(false);
+		expect(ctl.settings!.profiles.solidworks_mode).toBe('off');
+		expect(ctl.settings!.overlay.callouts.size).toBe('xl');
+		await ctl.flush();
+		const stored = backend.peek().settings;
+		expect(stored.overlay.callouts.size).toBe('xl');
+		expect(stored.host.native_overlay).toBe(false);
+		expect(stored.profiles.solidworks_mode).toBe('off');
+		expect(ctl.saveState).toBe('saved');
+	});
+
+	it('reads the settings again when the window gets the focus back', async () => {
+		const { ctl, backend } = controller();
+		await ctl.init();
+		backend.changeFromApp((s) => (s.host.native_overlay = false), { settingsEvent: false });
+		window.dispatchEvent(new Event('focus'));
+		await ctl.syncFromApp();
+		expect(ctl.settings!.host.native_overlay).toBe(false);
+		expect(ctl.saveState).toBe('idle');
+	});
+
+	it('an edit of the same switch in the window wins over the tray', async () => {
+		const { ctl, backend } = controller();
+		await ctl.init();
+		backend.changeFromApp((s) => (s.host.native_overlay = false), { settingsEvent: false });
+		const draft = clone(ctl.settings!);
+		draft.host.native_overlay = false;
+		draft.host.hide_native_when_obs = !draft.host.hide_native_when_obs;
+		ctl.settings = draft;
+		ctl.draftChanged(clone(draft));
+		await ctl.flush();
+		expect(backend.peek().settings.host).toEqual(draft.host);
 	});
 });

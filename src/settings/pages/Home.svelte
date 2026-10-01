@@ -79,6 +79,9 @@
 	</div>
 
 	<div class="st-notices">
+		{#each status.notices as notice (notice)}
+			<Notice tone="warn" announce>{notice}</Notice>
+		{/each}
 		{#if !status.server.running}
 			<Notice tone="danger" lead="OBS sources cannot connect" announce>
 				{status.server.error ?? `The local server is not running on port ${status.server.port}.`}

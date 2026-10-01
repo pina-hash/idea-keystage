@@ -14,7 +14,20 @@
 //!   (typing is masked), whatever the SolidWorks mode says, so a password
 //!   typed into our settings window can never be shown even if password
 //!   detection misses it;
+//! * until UI Automation password detection runs (and if it stops), typing
+//!   is masked in every profile ([`super::exposure`]), because only classic
+//!   Edit password boxes would be detected;
 //! * nothing here logs input.
+//!
+//! Order. The hook queue and the watcher's channel are separate, and the
+//! watcher's events carry no time, so the thread cannot tell which keys
+//! were typed before a context change and which after it. Each pass drains
+//! the hook queue first and then reads the state changes, and
+//! [`Core::pass`] resolves every doubt toward hiding: a change that shows
+//! less (a password field, an excluded app, a lock) applies before the
+//! drained input, and a change that shows more (leaving them, unlocking, a
+//! profile that shows typed text) applies only after the input of this
+//! pass and the next one, which hold everything typed before it.
 //!
 //! The thread wakes when the hooks or the watcher unpark it and at least
 //! every 16 ms to tick the processor and flush a coalesced mouse move. All
@@ -28,9 +41,10 @@ use crossbeam_channel::{Receiver, Sender};
 use keystage_core::profile::{select_profile, GENERAL_ID};
 use keystage_core::protocol::{Legends, ServerMsg, SolidworksMode};
 use keystage_core::{
-    DisplayEvent, InputEvent, MonitorRect, Processor, Profile, Settings, Suppress,
+    DisplayEvent, DisplayRules, InputEvent, MonitorRect, Processor, Profile, Settings, Suppress,
 };
 
+use super::exposure::{self, Exposure};
 use super::state::{PipelineView, Reason};
 use crate::platform::{
     self, ContextEvent, ForegroundInfo, ForegroundKind, InputHandle, LegendTable, ModifierSnapshot,
@@ -45,6 +59,10 @@ pub const PARK_MS: u64 = 16;
 pub const TICK_EVERY_MS: u64 = 16;
 /// Retry delay when a modifier resync could not read the keyboard.
 pub const RESYNC_RETRY_MS: u64 = 500;
+/// Input batches handled under the stricter state before a change that
+/// shows more takes effect: the batch drained before the change was read,
+/// and the next one (see [`Core::pass`]).
+pub const RELAX_AFTER_BATCHES: u8 = 2;
 
 /// Messages from the shell to the pipeline.
 #[derive(Debug)]
@@ -53,6 +71,23 @@ pub enum Control {
     Paused(bool),
     Monitor(Option<MonitorRect>),
     Shutdown,
+}
+
+/// A state change read by one pass of the pipeline thread.
+#[derive(Debug)]
+pub enum Change {
+    Control(Control),
+    Context(ContextEvent),
+    /// Whether UI Automation password detection runs
+    /// (`WatcherHandle::uia_active`).
+    PasswordDetection(bool),
+}
+
+/// What the processor should be set to.
+struct Wanted {
+    suppress: Option<Suppress>,
+    profile: Option<Arc<Profile>>,
+    rules: DisplayRules,
 }
 
 /// Where the pipeline's output goes.
@@ -204,11 +239,28 @@ pub struct Core {
     next_resync: u64,
     out: Vec<DisplayEvent>,
     view: Option<PipelineView>,
+    /// The general rules last handed to the processor.
+    applied_rules: DisplayRules,
+    /// True while [`Core::pass`] applies its state changes.
+    deferring: bool,
+    /// Input batches still to handle under the stricter state in force
+    /// before the wanted state, which shows more, is applied. 0: the
+    /// processor is in the wanted state.
+    relax_after: u8,
+    /// UI Automation password detection runs. False until the watcher says
+    /// so: typing is masked in every profile meanwhile.
+    full_detection: bool,
+    /// Masked variants of the profiles, built when first needed.
+    masked: Vec<(Arc<Profile>, Arc<Profile>)>,
 }
 
 impl Core {
+    /// A core that shows nothing until the watcher has reported the
+    /// foreground, and masks typing until it reports that UI Automation
+    /// password detection runs.
     pub fn new(settings: Arc<Settings>, builtin: Arc<Profile>, legends: Arc<LegendTable>) -> Core {
-        let processor = Processor::new(settings.display_rules());
+        let applied_rules = settings.display_rules();
+        let processor = Processor::new(applied_rules.clone());
         let profiles = settings.profiles.all_profiles(&builtin);
         let general = profiles
             .iter()
@@ -231,10 +283,15 @@ impl Core {
             next_resync: 0,
             out: Vec::with_capacity(64),
             view: None,
+            applied_rules,
+            deferring: false,
+            relax_after: 0,
+            full_detection: false,
+            masked: Vec::new(),
         };
-        core.select_profile();
-        let s = core.gate.suppress();
-        let _ = core.processor.set_suppressed(s);
+        let want = core.wanted();
+        core.push(want);
+        core.out.clear();
         core
     }
 
@@ -246,33 +303,109 @@ impl Core {
         &self.gate
     }
 
+    /// One pass of the pipeline thread. `input` was drained from the hook
+    /// queue before `changes` were read from their channels, so the order
+    /// between the two is unknown: a change may have been sent before or
+    /// after any of the drained keys. Every doubt is resolved toward hiding:
+    ///
+    /// * a change that shows the same or less applies before `input` is
+    ///   handled (keys typed after it, in a password field or an excluded
+    ///   app, are hidden);
+    /// * a change that shows more (leaving a password field or an excluded
+    ///   app, unlocking, resuming, a profile that shows typed text, password
+    ///   detection back) waits: `input` is handled under the stricter state,
+    ///   and so is the input of the next pass, because keys typed before the
+    ///   change may still have been on their way into the queue when this
+    ///   pass drained it. A key reaches the hook before the app that moves
+    ///   the focus, and the watcher reports the move after it, so every key
+    ///   typed before a change is drained by the pass after the one that
+    ///   read the change. The cost is that keys typed within one pass (at
+    ///   most [`PARK_MS`]) after such a change are hidden too.
+    ///
+    /// Returns false on shutdown.
+    pub fn pass<I>(
+        &mut self,
+        input: &mut Vec<InputEvent>,
+        changes: I,
+        now: u64,
+        sink: &mut dyn Sink,
+    ) -> bool
+    where
+        I: IntoIterator<Item = Change>,
+    {
+        self.deferring = true;
+        let mut running = true;
+        for change in changes {
+            match change {
+                Change::Control(c) => {
+                    if !self.on_control(c, now, sink) {
+                        running = false;
+                        break;
+                    }
+                }
+                Change::Context(ev) => self.on_context(ev, now, sink),
+                Change::PasswordDetection(full) => self.on_password_detection(full, sink),
+            }
+        }
+        self.deferring = false;
+        if !running {
+            return false;
+        }
+        if !input.is_empty() {
+            self.on_input(input, now, sink);
+        }
+        if self.relax_after > 0 {
+            self.relax_after -= 1;
+            if self.relax_after == 0 {
+                let want = self.wanted();
+                self.push(want);
+            }
+        }
+        self.flush(sink);
+        true
+    }
+
     /// Handles a control message. Returns false on shutdown.
-    pub fn on_control(&mut self, c: Control, now: u64, sink: &mut dyn Sink) -> bool {
+    pub fn on_control(&mut self, c: Control, _now: u64, sink: &mut dyn Sink) -> bool {
         match c {
             Control::Settings(s) => {
-                self.processor.set_rules(s.display_rules());
                 self.profiles = s.profiles.all_profiles(&self.builtin);
                 if let Some(g) = self.profiles.iter().find(|p| p.id == GENERAL_ID) {
                     self.general = g.clone();
                 }
+                self.masked.clear();
                 self.settings = s;
                 if matches!(self.gate.fg, Fg::Normal | Fg::Excluded(_)) {
                     if let Some(exe) = self.last_exe.clone() {
                         self.gate.fg = self.classify_exe(&exe);
                     }
                 }
-                self.select_profile();
-                self.apply_gate(now);
+                self.apply();
             }
             Control::Paused(p) => {
                 self.gate.paused = p;
-                self.apply_gate(now);
+                self.apply();
             }
             Control::Monitor(m) => self.processor.set_monitor(m),
             Control::Shutdown => return false,
         }
         self.flush(sink);
         true
+    }
+
+    /// UI Automation password detection started (`true`) or is not running.
+    /// Without it, typing is masked in every profile.
+    pub fn on_password_detection(&mut self, full: bool, sink: &mut dyn Sink) {
+        if self.full_detection != full {
+            self.full_detection = full;
+            self.apply();
+        }
+        self.flush(sink);
+    }
+
+    /// True while UI Automation password detection is known to run.
+    pub fn full_password_detection(&self) -> bool {
+        self.full_detection
     }
 
     fn classify_exe(&self, exe: &str) -> Fg {
@@ -283,8 +416,9 @@ impl Core {
         }
     }
 
-    fn select_profile(&mut self) {
-        let chosen = if self.own_foreground {
+    /// The profile for the foreground.
+    fn chosen_profile(&self) -> Option<Arc<Profile>> {
+        if self.own_foreground {
             Some(self.general.clone())
         } else {
             select_profile(
@@ -293,20 +427,98 @@ impl Core {
                 &self.profiles,
             )
             .cloned()
-        };
-        match chosen {
-            Some(p) => self.processor.set_profile(p),
-            None => self.processor.clear_profile(),
         }
     }
 
-    fn apply_gate(&mut self, now: u64) {
-        let want = self.gate.suppress();
-        if self.processor.suppressed() != want.as_ref() {
-            let evs = self.processor.set_suppressed(want);
+    fn masked_profile(&mut self, p: &Arc<Profile>) -> Arc<Profile> {
+        if let Some((_, m)) = self.masked.iter().find(|(src, _)| Arc::ptr_eq(src, p)) {
+            return m.clone();
+        }
+        let m = Arc::new(exposure::masked_profile(p));
+        self.masked.push((p.clone(), m.clone()));
+        m
+    }
+
+    /// The processor state the gate, the foreground, the settings and the
+    /// password detection call for.
+    fn wanted(&mut self) -> Wanted {
+        let suppress = self.gate.suppress();
+        let mut rules = self.settings.display_rules();
+        let mut profile = self.chosen_profile();
+        if !self.full_detection {
+            rules = exposure::masked_rules(rules);
+            profile = profile.map(|p| self.masked_profile(&p));
+        }
+        Wanted {
+            suppress,
+            profile,
+            rules,
+        }
+    }
+
+    fn applied_exposure(&self) -> Exposure {
+        exposure::exposure(
+            self.processor.suppressed().is_some(),
+            self.processor.profile().map(|p| &**p),
+            &self.applied_rules,
+        )
+    }
+
+    /// Brings the processor in line with the wanted state. Inside a pass, a
+    /// state that shows more than the one in force waits (see
+    /// [`Core::pass`]); the stricter state stays until then.
+    fn apply(&mut self) {
+        let want = self.wanted();
+        if self.deferring {
+            let next = exposure::exposure(
+                want.suppress.is_some(),
+                want.profile.as_deref(),
+                &want.rules,
+            );
+            if next > self.applied_exposure() {
+                self.relax_after = RELAX_AFTER_BATCHES;
+                return;
+            }
+        }
+        self.push(want);
+    }
+
+    /// Sets the processor to `want` at once. Suppression starts before the
+    /// profile changes and ends after it, so nothing is ever handled under
+    /// a mix that shows more than either state.
+    fn push(&mut self, want: Wanted) {
+        let Wanted {
+            suppress,
+            profile,
+            rules,
+        } = want;
+        let hiding = suppress.is_some();
+        if hiding {
+            self.set_suppressed(suppress.clone());
+        }
+        if rules != self.applied_rules {
+            self.processor.set_rules(rules.clone());
+            self.applied_rules = rules;
+        }
+        match profile {
+            Some(p) => self.processor.set_profile(p),
+            None => {
+                if self.processor.profile().is_some() {
+                    self.processor.clear_profile();
+                }
+            }
+        }
+        if !hiding {
+            self.set_suppressed(None);
+        }
+        self.relax_after = 0;
+    }
+
+    fn set_suppressed(&mut self, s: Option<Suppress>) {
+        if self.processor.suppressed() != s.as_ref() {
+            let evs = self.processor.set_suppressed(s);
             self.out.extend(evs);
         }
-        let _ = now;
     }
 
     fn current_view(&self) -> PipelineView {
@@ -326,7 +538,7 @@ impl Core {
             ContextEvent::Modifiers(snap) => self.on_modifiers(&snap),
             ContextEvent::Password { active } => {
                 self.gate.password = active;
-                self.apply_gate(now);
+                self.apply();
             }
             ContextEvent::Layout(table) => {
                 self.legends = table;
@@ -338,11 +550,11 @@ impl Core {
                 let evs = self.processor.release_all(t_ms);
                 self.out.extend(evs);
                 self.gate.locked = true;
-                self.apply_gate(now);
+                self.apply();
             }
             ContextEvent::SessionUnlocked { .. } => {
                 self.gate.locked = false;
-                self.apply_gate(now);
+                self.apply();
             }
         }
         self.flush(sink);
@@ -358,12 +570,10 @@ impl Core {
                     self.classify_exe(exe)
                 };
                 self.last_exe = Some(exe.to_string());
-                self.select_profile();
             }
             (ForegroundKind::OwnProcess, None) => {
                 self.own_foreground = true;
                 self.gate.fg = Fg::Normal;
-                self.select_profile();
             }
             (ForegroundKind::Elevated, _) => {
                 // The hooks see nothing there: show a neutral state.
@@ -376,7 +586,7 @@ impl Core {
                 self.gate.fg = Fg::Unidentified;
             }
         }
-        self.apply_gate(now);
+        self.apply();
     }
 
     fn on_modifiers(&mut self, snap: &ModifierSnapshot) {
@@ -530,27 +740,30 @@ where
                     (Err(e.to_string()), None)
                 }
             };
+            // Read on every pass: one atomic load.
+            let detection = watcher.as_ref().ok().cloned();
             on_started(Started { input, watcher });
             tracing::info!("pipeline running");
             let mut buf: Vec<InputEvent> = Vec::with_capacity(256);
             let mut read = platform::read_modifiers;
-            'run: loop {
-                let now = platform::now_ms();
-                while let Ok(c) = rx.try_recv() {
-                    if !core.on_control(c, now, &mut sink) {
-                        break 'run;
-                    }
-                }
-                if let Some(ctx) = &context {
-                    while let Ok(ev) = ctx.try_recv() {
-                        core.on_context(ev, now, &mut sink);
-                    }
-                }
+            loop {
+                // The input first, then the state changes (see `Core::pass`).
                 if let Some(r) = receiver.as_mut() {
                     r.drain_into(&mut buf);
-                    if !buf.is_empty() {
-                        core.on_input(&mut buf, platform::now_ms(), &mut sink);
-                    }
+                }
+                let full = detection.as_ref().is_some_and(WatcherHandle::uia_active);
+                let changes = rx
+                    .try_iter()
+                    .map(Change::Control)
+                    .chain(
+                        context
+                            .iter()
+                            .flat_map(Receiver::try_iter)
+                            .map(Change::Context),
+                    )
+                    .chain(std::iter::once(Change::PasswordDetection(full)));
+                if !core.pass(&mut buf, changes, platform::now_ms(), &mut sink) {
+                    break;
                 }
                 core.on_wake(platform::now_ms(), &mut sink, &mut read);
                 thread::park_timeout(core.park_for(platform::now_ms()));
@@ -661,6 +874,7 @@ mod tests {
     }
 
     fn ready(c: &mut Core, r: &mut Rec, exe: &str) {
+        c.on_password_detection(true, r);
         c.on_context(fg(ForegroundKind::App, Some(exe)), 1, r);
         c.on_context(ContextEvent::Password { active: false }, 1, r);
         r.clear();
@@ -962,5 +1176,326 @@ mod tests {
         let c = core_with(Settings::default());
         let d = c.park_for(1000);
         assert!(d >= Duration::from_millis(1) && d <= Duration::from_millis(PARK_MS));
+    }
+
+    /* --- Order between the hook queue and the state changes (Core::pass) -- */
+
+    const VK_1: (u16, u16) = (0x31, 0x02);
+    const VK_2: (u16, u16) = (0x32, 0x03);
+    const VK_A: (u16, u16) = (0x41, 0x1E);
+    const VK_S: (u16, u16) = (0x53, 0x1F);
+    const VK_TAB: (u16, u16) = (0x09, 0x0F);
+
+    /// Each key pressed and released, 100 ms apart, from `t0`.
+    fn typed(t0: u64, keys: &[(u16, u16)]) -> Vec<InputEvent> {
+        keys.iter()
+            .enumerate()
+            .flat_map(|(i, &(vk, scan))| {
+                let t = t0 + i as u64 * 100;
+                [
+                    key(vk, scan, false, true, t),
+                    key(vk, scan, false, false, t + 10),
+                ]
+            })
+            .collect()
+    }
+
+    /// Alt + Tab from `t0`.
+    fn alt_tab(t0: u64) -> Vec<InputEvent> {
+        vec![
+            key(0xA4, 0x38, false, true, t0),
+            key(VK_TAB.0, VK_TAB.1, false, true, t0 + 10),
+            key(VK_TAB.0, VK_TAB.1, false, false, t0 + 20),
+            key(0xA4, 0x38, false, false, t0 + 30),
+        ]
+    }
+
+    fn pass(c: &mut Core, r: &mut Rec, mut input: Vec<InputEvent>, changes: Vec<Change>, now: u64) {
+        assert!(c.pass(&mut input, changes, now, r));
+        assert!(input.is_empty(), "the batch is handled");
+    }
+
+    fn ctx(ev: ContextEvent) -> Change {
+        Change::Context(ev)
+    }
+
+    fn password(active: bool) -> Change {
+        ctx(ContextEvent::Password { active })
+    }
+
+    fn app(exe: &str) -> Change {
+        ctx(fg(ForegroundKind::App, Some(exe)))
+    }
+
+    /// Nothing that reveals input: no callout, no key or button message.
+    fn assert_nothing_revealed(r: &Rec) {
+        let revealing: Vec<&String> = r
+            .shown
+            .iter()
+            .filter(|(e, _)| !matches!(e, DisplayEvent::ModifiersReleased { .. }))
+            .map(|(_, j)| j)
+            .collect();
+        assert!(revealing.is_empty(), "{revealing:?}");
+    }
+
+    fn texts(r: &Rec) -> Vec<String> {
+        r.shown
+            .iter()
+            .filter_map(|(e, _)| e.callout())
+            .filter_map(|c| c.text.clone())
+            .collect()
+    }
+
+    fn solidworks_on() -> Settings {
+        let mut s = Settings::default();
+        s.profiles.solidworks_mode = SolidworksMode::On;
+        s
+    }
+
+    #[test]
+    fn keys_drained_with_the_end_of_a_password_field_stay_hidden() {
+        // SolidWorks mode On: outside a password field, digits and letters
+        // would show as text.
+        let mut c = core_with(solidworks_on());
+        let mut r = Rec::default();
+        ready(&mut c, &mut r, "chrome.exe");
+        pass(&mut c, &mut r, vec![], vec![password(true)], 100);
+        r.clear();
+        // The pipeline was starved: the last characters and the Tab out of
+        // the field are drained in the same pass that reads the verdict for
+        // the next field.
+        pass(
+            &mut c,
+            &mut r,
+            typed(200, &[VK_1, VK_2, VK_A, VK_TAB]),
+            vec![password(false)],
+            700,
+        );
+        assert_nothing_revealed(&r);
+        assert!(c.processor().suppressed().is_some());
+        // Keys still on their way into the queue when that pass drained it
+        // come with the next pass, which is still hidden.
+        pass(&mut c, &mut r, typed(650, &[VK_2]), vec![], 710);
+        assert_nothing_revealed(&r);
+        // Then the field's state applies.
+        assert_eq!(c.processor().suppressed(), None);
+        assert_eq!(c.gate().privacy(), None);
+        r.clear();
+        pass(&mut c, &mut r, typed(3000, &[VK_1, VK_2]), vec![], 3300);
+        assert_eq!(texts(&r).last().map(String::as_str), Some("12"));
+    }
+
+    #[test]
+    fn the_last_keys_typed_in_an_excluded_app_stay_hidden_after_alt_tab() {
+        let mut c = core_with(solidworks_on());
+        let mut r = Rec::default();
+        ready(&mut c, &mut r, "KeePass.exe");
+        assert_eq!(c.gate().privacy(), Some(Reason::Excluded));
+        let mut input = typed(100, &[VK_1, VK_2, VK_A]);
+        input.extend(alt_tab(500));
+        pass(&mut c, &mut r, input, vec![app("notepad.exe")], 600);
+        assert_nothing_revealed(&r);
+        pass(&mut c, &mut r, vec![], vec![], 620);
+        assert_nothing_revealed(&r);
+        assert_eq!(c.processor().suppressed(), None);
+        r.clear();
+        pass(&mut c, &mut r, typed(2000, &[VK_1]), vec![], 2100);
+        assert_eq!(texts(&r).last().map(String::as_str), Some("1"));
+    }
+
+    #[test]
+    fn a_quick_trip_through_an_excluded_app_hides_what_was_typed_there() {
+        let mut c = core_with(solidworks_on());
+        let mut r = Rec::default();
+        ready(&mut c, &mut r, "notepad.exe");
+        // In and out of KeePass between two passes: its keys are drained
+        // with both foreground changes.
+        let mut input = alt_tab(100);
+        input.extend(typed(200, &[VK_1, VK_2]));
+        input.extend(alt_tab(400));
+        pass(
+            &mut c,
+            &mut r,
+            input,
+            vec![app("KeePass.exe"), app("notepad.exe")],
+            500,
+        );
+        assert_nothing_revealed(&r);
+    }
+
+    #[test]
+    fn keys_typed_after_a_change_that_hides_are_hidden() {
+        let mut c = core_with(solidworks_on());
+        let mut r = Rec::default();
+        ready(&mut c, &mut r, "notepad.exe");
+        // The keys were typed in KeePass after the switch; the change is read
+        // after they were drained, and still applies first.
+        pass(
+            &mut c,
+            &mut r,
+            typed(100, &[VK_1, VK_2]),
+            vec![app("KeePass.exe")],
+            300,
+        );
+        assert!(texts(&r).is_empty(), "{:?}", r.shown);
+        assert!(r.callouts().is_empty());
+        pass(&mut c, &mut r, vec![], vec![password(true)], 310);
+        r.clear();
+        pass(&mut c, &mut r, typed(400, &[VK_1]), vec![], 500);
+        assert_nothing_revealed(&r);
+    }
+
+    #[test]
+    fn typing_drained_with_a_switch_to_solidworks_stays_masked() {
+        let mut c = core_with(Settings::default());
+        let mut r = Rec::default();
+        ready(&mut c, &mut r, "notepad.exe");
+        // Typed in Notepad (masked), drained with the switch to SolidWorks
+        // (which shows typed values).
+        pass(
+            &mut c,
+            &mut r,
+            typed(100, &[VK_1, VK_2]),
+            vec![app("SLDWORKS.exe")],
+            300,
+        );
+        assert!(texts(&r).is_empty(), "{:?}", r.shown);
+        assert!(r.callouts().contains(&"Typing".to_string()));
+        assert_eq!(profile_id(&c).as_deref(), Some("general"));
+        pass(&mut c, &mut r, vec![], vec![], 310);
+        assert_eq!(profile_id(&c).as_deref(), Some("solidworks"));
+        r.clear();
+        pass(&mut c, &mut r, typed(3000, &[VK_1, VK_2]), vec![], 3300);
+        assert_eq!(texts(&r).last().map(String::as_str), Some("12"));
+    }
+
+    #[test]
+    fn removing_an_app_from_the_excluded_list_waits_for_its_keys() {
+        let mut c = core_with(solidworks_on());
+        let mut r = Rec::default();
+        ready(&mut c, &mut r, "KeePass.exe");
+        let mut s = solidworks_on();
+        s.privacy.excluded_apps.clear();
+        pass(
+            &mut c,
+            &mut r,
+            typed(100, &[VK_1, VK_2]),
+            vec![Change::Control(Control::Settings(Arc::new(s)))],
+            300,
+        );
+        assert_nothing_revealed(&r);
+        assert_eq!(c.gate().privacy(), None);
+        pass(&mut c, &mut r, vec![], vec![], 310);
+        r.clear();
+        pass(&mut c, &mut r, typed(3000, &[VK_1]), vec![], 3100);
+        assert_eq!(texts(&r).last().map(String::as_str), Some("1"));
+    }
+
+    #[test]
+    fn a_shutdown_ends_the_pass() {
+        let mut c = core_with(Settings::default());
+        let mut r = Rec::default();
+        let mut input = typed(100, &[VK_1]);
+        assert!(!c.pass(
+            &mut input,
+            vec![Change::Control(Control::Shutdown)],
+            200,
+            &mut r
+        ));
+    }
+
+    #[test]
+    fn without_ui_automation_typing_is_masked_in_every_profile() {
+        let mut c = core_with(solidworks_on());
+        let mut r = Rec::default();
+        ready(&mut c, &mut r, "chrome.exe");
+        // UI Automation is not running: a browser password field would not
+        // be detected.
+        c.on_password_detection(false, &mut r);
+        assert!(!c.full_password_detection());
+        r.clear();
+        let mut input = typed(100, &[VK_1, VK_2, VK_S, VK_A]);
+        input.extend([
+            key(0xA2, 0x1D, false, true, 1000),
+            key(0x42, 0x30, false, true, 1010),
+            key(0x42, 0x30, false, false, 1020),
+            key(0xA2, 0x1D, false, false, 1030),
+        ]);
+        c.on_input(&mut input, 1100, &mut r);
+        assert!(texts(&r).is_empty(), "{:?}", r.callouts());
+        let callouts = r.callouts();
+        assert!(callouts.contains(&"Typing".to_string()), "{callouts:?}");
+        // `S` and `A` are captioned bare keys in the SolidWorks list: they
+        // stay masked too, and never become key messages.
+        assert!(
+            !callouts.iter().any(|c| c == "S" || c == "A"),
+            "{callouts:?}"
+        );
+        assert!(!r
+            .shown
+            .iter()
+            .any(|(_, j)| j.contains("\"key\":\"S\"") || j.contains("\"key\":\"1\"")));
+        // Combos keep their captions.
+        let combo = r
+            .shown
+            .iter()
+            .filter_map(|(e, _)| e.callout())
+            .find(|c| c.text_form() == "Ctrl + B")
+            .expect("Ctrl + B shows");
+        assert_eq!(combo.profile.as_deref(), Some("solidworks"));
+        // Detection back: typed values show again.
+        c.on_password_detection(true, &mut r);
+        r.clear();
+        let mut input = typed(5000, &[VK_1, VK_2]);
+        c.on_input(&mut input, 5300, &mut r);
+        assert_eq!(texts(&r).last().map(String::as_str), Some("12"));
+    }
+
+    #[test]
+    fn a_new_core_masks_typing_until_detection_is_reported() {
+        let mut c = core_with(solidworks_on());
+        let mut r = Rec::default();
+        assert!(!c.full_password_detection());
+        c.on_context(app("chrome.exe").into_context(), 1, &mut r);
+        c.on_context(ContextEvent::Password { active: false }, 1, &mut r);
+        r.clear();
+        let mut input = typed(100, &[VK_1, VK_2]);
+        c.on_input(&mut input, 300, &mut r);
+        assert!(texts(&r).is_empty());
+        // Losing detection hides at once, getting it back waits a pass.
+        pass(
+            &mut c,
+            &mut r,
+            vec![],
+            vec![Change::PasswordDetection(true)],
+            400,
+        );
+        r.clear();
+        pass(&mut c, &mut r, typed(500, &[VK_1]), vec![], 600);
+        assert!(
+            texts(&r).is_empty(),
+            "drained with the change: still masked"
+        );
+        r.clear();
+        pass(&mut c, &mut r, typed(3000, &[VK_1]), vec![], 3100);
+        assert_eq!(texts(&r).last().map(String::as_str), Some("1"));
+        r.clear();
+        pass(
+            &mut c,
+            &mut r,
+            typed(5000, &[VK_1]),
+            vec![Change::PasswordDetection(false)],
+            5100,
+        );
+        assert!(texts(&r).is_empty());
+    }
+
+    impl Change {
+        fn into_context(self) -> ContextEvent {
+            match self {
+                Change::Context(ev) => ev,
+                other => panic!("not a context event: {other:?}"),
+            }
+        }
     }
 }

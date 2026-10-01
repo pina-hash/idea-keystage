@@ -15,6 +15,7 @@
 	const appearance = $derived(ctl.appearance);
 	const activity = $derived(ctl.status ? activityWord(ctl.status) : null);
 	const rec = $derived(ctl.status ? recordingText(ctl.status) : null);
+	const notices = $derived(ctl.status?.notices.length ?? 0);
 
 	function toggleAppearance() {
 		ctl.setAppearance(appearance === 'dark' ? 'light' : 'dark');
@@ -47,6 +48,13 @@
 					tone="danger"
 					text={rec.startsWith('Recording paused') ? 'Rec paused' : 'Rec'}
 					title={rec}
+				/>
+			{/if}
+			{#if notices > 0}
+				<StatusChip
+					tone="warn"
+					text={notices === 1 ? '1 warning' : `${notices} warnings`}
+					title="Read on the Home page."
 				/>
 			{/if}
 		</div>

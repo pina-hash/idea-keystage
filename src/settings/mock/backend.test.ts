@@ -102,6 +102,11 @@ describe('scenarios', () => {
 		expect(await empty.listMonitors()).toEqual([]);
 		expect(await empty.sessionsList()).toEqual([]);
 		expect((await empty.getStatus()).obs.state).toBe('off');
+		expect((await empty.getStatus()).notices).toEqual([]);
+		const notices = await make('notices').ipc.getStatus();
+		expect(notices.notices).toHaveLength(3);
+		expect(notices.notices[0]).toContain('did not start');
+		expect(notices.suppressed).toBe('excluded');
 	});
 });
 
@@ -256,7 +261,14 @@ describe('sessions', () => {
 			markers: { name: string }[];
 		};
 		expect(renamed.markers[1]!.name).toBe('Wrap up');
-		expect(await ipc.sessionExport(list[0]!.id, 'srt', 'C:\\x.srt')).toEqual({ path: 'C:\\x.srt' });
+		const exported = await ipc.sessionExport(list[0]!.id, 'srt', 'C:\\x.srt');
+		expect(exported.path).toBe('C:\\x.srt');
+		// No OBS timing in the mock sessions: the app says the times count from the session log.
+		expect(exported.warnings).toEqual([expect.stringContaining('OBS timing was not available')]);
+		const chapters = await ipc.sessionExport(list[0]!.id, 'chapters', 'C:\\c.txt');
+		expect(chapters.warnings).toHaveLength(1);
+		const two = await ipc.sessionExport(list[0]!.id, 'json', 'C:\\x.json');
+		expect(two.warnings).toEqual([]);
 		expect(await ipc.sessionDelete(list[0]!.id)).toEqual([]);
 		await expect(ipc.sessionGet('gone')).rejects.toThrow('no longer');
 	});
@@ -268,6 +280,37 @@ describe('sessions', () => {
 		const raw = (await ipc.sessionGet(list[0]!.id)) as { callouts: unknown[]; markers: unknown[] };
 		expect(raw.callouts).toHaveLength(list[0]!.callouts);
 		expect(raw.markers).toHaveLength(list[0]!.markers);
+	});
+});
+
+describe('changes the app makes itself', () => {
+	it('emits the status and keystage://settings, and notices on demand', async () => {
+		const { ipc, backend } = make();
+		const statuses: string[] = [];
+		const settingsEvents: unknown[] = [];
+		await ipc.onStatus((s) => statuses.push(s.solidworks_mode));
+		await ipc.onSettingsChanged(() => settingsEvents.push(1));
+		backend.changeFromApp((s) => (s.profiles.solidworks_mode = 'on'));
+		expect(statuses.at(-1)).toBe('on');
+		expect(settingsEvents).toHaveLength(1);
+		backend.changeFromApp((s) => (s.host.native_overlay = false), { settingsEvent: false });
+		expect(settingsEvents).toHaveLength(1);
+		expect((await ipc.getSettings()).host.native_overlay).toBe(false);
+		await ipc.setSolidworksMode('off');
+		expect(settingsEvents).toHaveLength(2);
+		const seen: string[][] = [];
+		await ipc.onStatus((s) => seen.push(s.notices));
+		backend.setNotices(['Starting with Windows could not be turned on.']);
+		expect(seen.at(-1)).toEqual(['Starting with Windows could not be turned on.']);
+	});
+
+	it('leaves the password blob out of the settings event', async () => {
+		const { backend } = make();
+		const got: unknown[] = [];
+		await backend.listen('keystage://settings', (p) => got.push(p));
+		backend.changeFromApp((s) => (s.overlay.scale = 1.5));
+		expect((got[0] as { obs: { password_dpapi: unknown } }).obs.password_dpapi).toBeNull();
+		expect(backend.peek().settings.obs.password_dpapi).not.toBeNull();
 	});
 });
 

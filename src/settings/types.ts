@@ -167,6 +167,14 @@ export interface Status {
 	};
 	hook: { installed: boolean; dropped: number };
 	version: string;
+	/**
+	 * Plain sentences the app wants the user to read, possibly several:
+	 * input capture or app detection did not start, a session log could not
+	 * be saved, a hotkey another program holds, an OBS or sound problem, a
+	 * settings file that had to be reset. Beyond the section 12 type (the
+	 * shell's StatusPayload); empty when all is well.
+	 */
+	notices: string[];
 }
 
 /** `list_monitors` entry, physical pixels. */
@@ -230,6 +238,12 @@ export type ExportFormat = 'srt' | 'md' | 'json' | 'chapters';
 
 export interface ExportResult {
 	path: string;
+	/**
+	 * What the user should know about the file (times that count from the
+	 * session log rather than the video, a recording left out, a chapter
+	 * name that was dropped). Beyond the section 12 type; often empty.
+	 */
+	warnings: string[];
 }
 
 export interface RouteUrl {

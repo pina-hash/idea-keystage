@@ -197,7 +197,38 @@ fn scan_for_vk(code: u16, hkl: HKL) -> Option<PhysKey> {
         return None;
     }
     let prefix = (sc >> 8) & 0xFF;
-    Some(PhysKey::new((sc & 0xFF) as u16, prefix == 0xE0))
+    // The navigation cluster shares its low scan bytes with the numeric
+    // keypad; Microsoft's scan code table gives the navigation keys the E0
+    // prefix (Insert 0xE052, Delete 0xE053, Home 0xE047, End 0xE04F, Page Up
+    // 0xE049, Page Down 0xE051, arrows 0xE048/0xE04B/0xE04D/0xE050) and the
+    // keypad Divide key 0xE035, https://learn.microsoft.com/en-us/windows/win32/inputdev/about-keyboard-input#scan-codes
+    // (read 2026-10-01). MapVirtualKeyExW returns these VKs without the
+    // prefix on Windows (seen on windows-latest in CI), which would light the
+    // keypad for an injected Insert, so the prefix is applied here.
+    let extended = prefix == 0xE0 || is_extended_only_vk(code);
+    Some(PhysKey::new((sc & 0xFF) as u16, extended))
+}
+
+/// Virtual keys that only the E0-prefixed physical key produces: the
+/// navigation cluster and the keypad Divide key. (With Num Lock off the
+/// keypad sends the same navigation VKs, but always with its own,
+/// non-extended scan code in the hook record, so this applies only when a
+/// scan code has to be inferred from the VK.)
+fn is_extended_only_vk(code: u16) -> bool {
+    matches!(
+        code,
+        vk::INSERT
+            | vk::DELETE
+            | vk::HOME
+            | vk::END
+            | vk::PRIOR
+            | vk::NEXT
+            | vk::LEFT
+            | vk::UP
+            | vk::RIGHT
+            | vk::DOWN
+            | vk::DIVIDE
+    )
 }
 
 /// Fills the physical key of an injected key event whose scan code is 0,
@@ -294,9 +325,12 @@ mod tests {
         assert_eq!(fill_scan(vk::RCONTROL), Some(PhysKey::new(0x1D, true)));
         assert_eq!(fill_scan(vk::LCONTROL), Some(PhysKey::new(0x1D, false)));
         assert_eq!(fill_scan(vk::ESCAPE), Some(PhysKey::new(0x01, false)));
+        // The navigation cluster is E0-prefixed even where MapVirtualKeyExW
+        // leaves the prefix out (real Windows and Wine both do for VK_INSERT).
+        assert_eq!(fill_scan(vk::INSERT), Some(PhysKey::new(0x52, true)));
+        assert_eq!(fill_scan(vk::LEFT).map(|p| p.extended), Some(true));
         if !super::super::os::running_under_wine() {
-            // Wine omits the E0 prefix that MAPVK_VK_TO_VSC_EX documents.
-            assert_eq!(fill_scan(vk::INSERT).map(|p| p.extended), Some(true));
+            // Wine maps the keypad VKs differently; Windows gives 0x52.
             assert_eq!(fill_scan(vk::NUMPAD0), Some(PhysKey::new(0x52, false)));
         }
     }

@@ -155,9 +155,13 @@ impl PrivacySettings {
     }
 }
 
+/// `s` without a trailing `.exe` (any ASCII case). The suffix is compared as
+/// bytes, so a name whose last four bytes split a multibyte character (for
+/// example "密码") cannot panic. A matched suffix is ASCII, so the cut is
+/// always on a char boundary.
 fn strip_exe(s: &str) -> &str {
-    let lower = s.len() >= 4 && s[s.len() - 4..].eq_ignore_ascii_case(".exe");
-    if lower {
+    let b = s.as_bytes();
+    if b.len() >= 4 && b[b.len() - 4..].eq_ignore_ascii_case(b".exe") {
         &s[..s.len() - 4]
     } else {
         s
@@ -964,6 +968,81 @@ mod tests {
         assert!(s.privacy.is_excluded("secrets.exe"), ".exe may be omitted");
         assert!(!s.privacy.is_excluded("notepad.exe"));
         assert!(!s.privacy.is_excluded(""));
+    }
+
+    #[test]
+    fn strip_exe_handles_non_ascii_names() {
+        // Each of these ends in a multibyte character whose bytes straddle
+        // `len - 4`, which used to panic.
+        assert_eq!(strip_exe("密码"), "密码");
+        assert_eq!(strip_exe("密码管理器"), "密码管理器");
+        assert_eq!(strip_exe("パスワード管理"), "パスワード管理");
+        assert_eq!(strip_exe("🔑a"), "🔑a");
+        assert_eq!(strip_exe("aé"), "aé");
+        // With the suffix, in any ASCII case.
+        assert_eq!(strip_exe("密码管理器.exe"), "密码管理器");
+        assert_eq!(strip_exe("パスワード管理.EXE"), "パスワード管理");
+        assert_eq!(strip_exe("Пароль.Exe"), "Пароль");
+        assert_eq!(strip_exe("🔑.exe"), "🔑");
+        // Short and ASCII names are unchanged.
+        assert_eq!(strip_exe(""), "");
+        assert_eq!(strip_exe("é"), "é");
+        assert_eq!(strip_exe(".exe"), "");
+        assert_eq!(strip_exe("exe"), "exe");
+        assert_eq!(strip_exe("KeePass.exe"), "KeePass");
+        // A fullwidth or otherwise non-ASCII look-alike is not the suffix.
+        assert_eq!(strip_exe("a．exe"), "a．exe");
+
+        // No cut position can panic: every prefix of a mixed string, with
+        // and without the suffix.
+        let mixed = "a密é🔑パb.exe";
+        for (i, _) in mixed.char_indices().chain([(mixed.len(), ' ')]) {
+            let p = &mixed[..i];
+            let stripped = strip_exe(p);
+            assert!(p.starts_with(stripped));
+        }
+    }
+
+    #[test]
+    fn excluded_apps_with_non_ascii_names() {
+        let mut s = Settings::default();
+        s.privacy.excluded_apps = vec![
+            "密码管理器".into(),
+            "パスワード管理.exe".into(),
+            "C:\\Программы\\Пароль.exe".into(),
+            "🔑a".into(),
+        ];
+        let issues = s.validate();
+        assert_eq!(
+            s.privacy.excluded_apps,
+            vec!["密码管理器", "パスワード管理.exe", "Пароль.exe", "🔑a"]
+        );
+        assert_eq!(issues.len(), 1, "only the path is shortened");
+
+        assert!(
+            s.privacy.is_excluded("密码管理器.exe"),
+            ".exe may be omitted"
+        );
+        assert!(s.privacy.is_excluded("C:\\Apps\\密码管理器.EXE"));
+        assert!(s.privacy.is_excluded("密码管理器"));
+        assert!(s.privacy.is_excluded("パスワード管理.exe"));
+        assert!(s.privacy.is_excluded("パスワード管理"));
+        assert!(s.privacy.is_excluded("D:\\Пароль.exe"));
+        assert!(s.privacy.is_excluded("🔑a.exe"));
+        // Other names, including non-ASCII ones, are not excluded and do
+        // not panic.
+        assert!(!s.privacy.is_excluded("密码.exe"));
+        assert!(!s.privacy.is_excluded("密码"));
+        assert!(!s.privacy.is_excluded("日本語のアプリ.exe"));
+        assert!(!s.privacy.is_excluded("SLDWORKS.exe"));
+        // The built-in defaults still apply alongside non-ASCII entries.
+        let mut d = Settings::default();
+        d.privacy.excluded_apps.push("密码管理器".into());
+        d.validate();
+        for e in DEFAULT_EXCLUDED_APPS {
+            assert!(d.privacy.is_excluded(e), "{e}");
+        }
+        assert!(d.privacy.is_excluded("密码管理器.exe"));
     }
 
     #[test]

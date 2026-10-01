@@ -4,7 +4,7 @@
  * and `mouse` are their content box at the chosen scale, rounded up to even
  * numbers. The settings window shows these next to each source URL.
  */
-import type { OverlayConfig, Route } from '../protocol';
+import type { KeyboardConfig, OverlayConfig, Route } from '../protocol';
 import {
 	CALLOUT_GEOMETRY,
 	CALLOUT_UNIT_PX,
@@ -52,26 +52,43 @@ export function calloutsBox(config: OverlayConfig): SourceSize {
 	return { width, height };
 }
 
+/**
+ * The box the keyboard visual (and the mouse beside it) is drawn in, in px,
+ * for a key pitch of `unitPx` (scale applied). No offsets.
+ */
+export function keyboardDrawingSize(
+	keyboard: Pick<KeyboardConfig, 'layout' | 'mouse'>,
+	unitPx: number
+): SourceSize {
+	const fp = KEYBOARD_FOOTPRINTS[keyboard.layout];
+	const w = fp.w + (keyboard.mouse ? KEYBOARD_MOUSE_W : 0);
+	return { width: w * unitPx, height: fp.h * unitPx };
+}
+
+/** The standalone mouse diagram's drawing at `scale`, in px. No bleed, no offsets. */
+export function mouseDrawingSize(scale: number): SourceSize {
+	const h = MOUSE_DIAGRAM.heightPx * (Number.isFinite(scale) && scale > 0 ? scale : 1);
+	return { width: h * MOUSE_DIAGRAM.aspect, height: h };
+}
+
 /** The content box of the keyboard visual (and the mouse beside it), in px. */
 export function keyboardBox(config: OverlayConfig): SourceSize {
 	const s = scaleOf(config);
-	const unit = KEYBOARD_UNIT_PX[config.keyboard.size] * s;
-	const fp = KEYBOARD_FOOTPRINTS[config.keyboard.layout];
-	const w = fp.w + (config.keyboard.mouse ? KEYBOARD_MOUSE_W : 0);
+	const drawing = keyboardDrawingSize(config.keyboard, KEYBOARD_UNIT_PX[config.keyboard.size] * s);
 	return {
-		width: w * unit + Math.abs(config.keyboard.offset_x) * s,
-		height: fp.h * unit + Math.abs(config.keyboard.offset_y) * s,
+		width: drawing.width + Math.abs(config.keyboard.offset_x) * s,
+		height: drawing.height + Math.abs(config.keyboard.offset_y) * s,
 	};
 }
 
 /** The content box of the standalone mouse diagram, in px. */
 export function mouseBox(config: OverlayConfig): SourceSize {
 	const s = scaleOf(config);
-	const h = MOUSE_DIAGRAM.heightPx * s;
+	const drawing = mouseDrawingSize(s);
 	const bleed = MOUSE_DIAGRAM.bleedPx * s;
 	return {
-		width: h * MOUSE_DIAGRAM.aspect + 2 * bleed + Math.abs(config.mouse.offset_x) * s,
-		height: h + 2 * bleed + Math.abs(config.mouse.offset_y) * s,
+		width: drawing.width + 2 * bleed + Math.abs(config.mouse.offset_x) * s,
+		height: drawing.height + 2 * bleed + Math.abs(config.mouse.offset_y) * s,
 	};
 }
 

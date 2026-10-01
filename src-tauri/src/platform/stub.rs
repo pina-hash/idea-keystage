@@ -12,6 +12,7 @@ use crossbeam_channel::{Receiver, Sender};
 use keystage_core::ipc::Monitor;
 use keystage_core::{Mod, Side};
 
+use super::hold::PasswordHold;
 use super::input::{InputReceiver, InputShared};
 use super::{ContextEvent, ForegroundInfo, LegendTable, ModifierSnapshot, PlatformError};
 
@@ -63,8 +64,10 @@ impl InputHandle {
 
 pub fn start_input(consumer: Thread) -> Result<(InputHandle, InputReceiver), PlatformError> {
     drop(consumer);
+    // Nothing stamps records here; the hold stays open.
+    static HOLD: PasswordHold = PasswordHold::new();
     let shared = Arc::new(InputShared::new());
-    let rx = InputReceiver::new(shared.clone(), now_ms, |_| None, read_held);
+    let rx = InputReceiver::new(shared.clone(), &HOLD, now_ms, |_| None, read_held);
     Ok((InputHandle { shared }, rx))
 }
 

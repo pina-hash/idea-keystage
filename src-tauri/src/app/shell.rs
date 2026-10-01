@@ -53,6 +53,22 @@ pub const OVERLAY_EVENT: &str = "keystage://overlay";
 pub const STATUS_EVENT: &str = "keystage://status";
 /// The argument the autostart entry passes: start in the tray.
 pub const AUTOSTART_ARG: &str = "--autostart";
+/// How long UI Automation may take to subscribe after start before its
+/// absence is a notice (the watcher itself waits up to 3 s for it).
+pub const UIA_GRACE: Duration = Duration::from_secs(5);
+/// The notice while UI Automation password detection does not run. The
+/// pipeline masks typing in every profile meanwhile (`pipeline::Core`).
+pub const UIA_NOTICE: &str = "Password detection for browsers and modern apps is unavailable, so typing is masked in every profile. Restart IDEA Keystage to try again.";
+
+/// The password detection notice: shown while the watcher runs without UI
+/// Automation, once the start grace period is over.
+pub fn detection_notice(
+    watcher_running: bool,
+    uia_active: bool,
+    since_start: Duration,
+) -> Option<&'static str> {
+    (watcher_running && !uia_active && since_start >= UIA_GRACE).then_some(UIA_NOTICE)
+}
 
 /// Wall clock in Unix milliseconds.
 pub fn unix_ms() -> u64 {
@@ -616,6 +632,23 @@ impl Shell {
         self.set_notice("settings", None);
     }
 
+    /// Raises or clears the notice that UI Automation password detection
+    /// does not run (only classic Edit password boxes are detected then).
+    fn check_password_detection(&self, since_start: Duration) {
+        let Some(w) = self.watcher.get() else {
+            return;
+        };
+        let want = detection_notice(w.is_running(), w.uia_active(), since_start);
+        let shown = self.notices.lock().get("uia").map(String::as_str) == want;
+        if shown {
+            return;
+        }
+        if want.is_some() {
+            tracing::warn!("UI Automation password detection is not running; typing is masked");
+        }
+        self.set_notice("uia", want.map(str::to_string));
+    }
+
     fn notices(&self) -> Vec<String> {
         let mut v: Vec<String> = self.notices.lock().values().cloned().collect();
         v.extend(self.hotkeys.notices());
@@ -698,6 +731,7 @@ impl Shell {
     }
 
     fn housekeeping(&self, refresh_rx: Receiver<()>) {
+        let started = Instant::now();
         let mut last_monitor_poll = Instant::now();
         while let Ok(()) | Err(RecvTimeoutError::Timeout) =
             refresh_rx.recv_timeout(Duration::from_secs(1))
@@ -705,6 +739,7 @@ impl Shell {
             if self.quitting.load(Ordering::Acquire) {
                 break;
             }
+            self.check_password_detection(started.elapsed());
             self.publish_state();
             self.refresh_now();
             if last_monitor_poll.elapsed() >= Duration::from_secs(2) {
@@ -1122,5 +1157,23 @@ mod tests {
     #[test]
     fn the_autostart_argument_is_a_flag() {
         assert!(AUTOSTART_ARG.starts_with("--"));
+    }
+
+    #[test]
+    fn missing_password_detection_is_a_notice_after_the_grace_period() {
+        let later = UIA_GRACE + Duration::from_secs(1);
+        assert_eq!(detection_notice(true, false, later), Some(UIA_NOTICE));
+        assert_eq!(detection_notice(true, true, later), None);
+        assert_eq!(
+            detection_notice(true, false, Duration::from_secs(1)),
+            None,
+            "UI Automation may still be subscribing"
+        );
+        assert_eq!(
+            detection_notice(false, false, later),
+            None,
+            "a watcher that did not start has its own notice"
+        );
+        assert!(!UIA_NOTICE.contains('\u{2014}') && !UIA_NOTICE.contains('\u{2013}'));
     }
 }

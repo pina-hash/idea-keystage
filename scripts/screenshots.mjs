@@ -4,7 +4,7 @@
 //
 //   node scripts/screenshots.mjs [--only=overlay|settings] [--states=a,b]
 //        [--routes=a,b] [--themes=a,b] [--res=1080p,4k] [--concurrency=4]
-//        [--build] [--out=.work/shots/final]
+//        [--build] [--dist=dist] [--out=.work/shots/final]
 //
 // Overlay (Host B, the OBS Browser Source page): for each shot the demo
 // server (cargo build --release -p keystage-server --example demo, run
@@ -30,6 +30,10 @@
 // Settings: settings.html from `vite preview` of dist/ with the in-memory
 // mock backend, every page in both registers and every mock scenario, at
 // 1920x1080 and at 1920x1080 with deviceScaleFactor 2.
+//
+// --dist=<folder> other than dist/ builds a private copy of the front end
+// there (vite build --outDir), so a run is not disturbed by someone
+// rebuilding dist/ at the same time; --build rebuilds it.
 //
 // Output: <out>/overlay/<state>/<route>-<theme>-<res>-<bg>.png,
 // <out>/settings/<name>-<1x|2x>.png, thumbnails, manifest.json and index.html.
@@ -142,7 +146,7 @@ if (!filtered) {
 	rmSync(join(OUT, 'thumbs'), { recursive: true, force: true });
 }
 mkdirSync(OUT, { recursive: true });
-ensureFrontEnd({ force: args.build === 'true' });
+const DIST = ensureFrontEnd({ force: args.build === 'true', outDir: args.dist ?? 'dist' });
 const demoExe = ONLY === 'settings' ? null : buildDemo();
 
 const manifestPath = join(OUT, 'manifest.json');
@@ -244,7 +248,7 @@ async function overlayShot(job) {
 	const started = performance.now();
 	let port = 0;
 	if (spec.disconnect && (await portIsFree(47820))) port = 47820;
-	const demo = await startDemo(demoExe, spec.demo, { port });
+	const demo = await startDemo(demoExe, spec.demo, { port, dist: DIST });
 	let observer = null;
 	const page = await (await contextFor(res)).newPage();
 	// A disconnected page keeps retrying, and anything it requests after the
@@ -534,7 +538,7 @@ if (ONLY !== 'settings') {
 	await Promise.all([pool(others, CONCURRENCY, tick), pool(disconnected, 1, tick)]);
 }
 if (ONLY !== 'overlay') {
-	const preview = await startPreview();
+	const preview = await startPreview({ outDir: DIST });
 	try {
 		await settingsRun(preview.base);
 	} finally {

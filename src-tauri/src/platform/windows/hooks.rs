@@ -10,7 +10,9 @@
 //!   "silently removed without being called". The procedures therefore only
 //!   copy a [`RawEvent`] into the preallocated lock-free queue, unpark the
 //!   consumer and call `CallNextHookEx`: no allocation, logging, locks or
-//!   channel sends, and nothing that can panic across the FFI boundary.
+//!   channel sends, and nothing that can panic across the FFI boundary. The
+//!   only other work is one atomic load: the password hold word copied into
+//!   the record ([`super::PASSWORD_HOLD`], `platform::hold`).
 //! * Windows removes only the hook whose call timed out, and a call times
 //!   out when the hook thread does not run for that long (a SolidWorks
 //!   rebuild and an OBS encode can saturate every core). So the hook thread
@@ -160,16 +162,14 @@ fn record_keyboard(wparam: WPARAM, lparam: LPARAM) {
     if ptr.is_null() {
         return;
     }
+    // The password state the watcher knows as this key is pressed.
+    let hold = super::PASSWORD_HOLD.stamp();
     // SAFETY: for HC_ACTION, lParam points to a KBDLLHOOKSTRUCT that is
     // valid for the duration of this call.
     let k = unsafe { ptr.read() };
-    shared.record(RawEvent::key(
-        wparam.0 as u32,
-        k.vkCode,
-        k.scanCode,
-        k.flags.0,
-        k.time,
-    ));
+    shared.record(
+        RawEvent::key(wparam.0 as u32, k.vkCode, k.scanCode, k.flags.0, k.time).with_hold(hold),
+    );
     wake();
 }
 
@@ -185,17 +185,21 @@ fn record_mouse(wparam: WPARAM, lparam: LPARAM) {
     if ptr.is_null() {
         return;
     }
+    let hold = super::PASSWORD_HOLD.stamp();
     // SAFETY: for HC_ACTION, lParam points to an MSLLHOOKSTRUCT that is
     // valid for the duration of this call.
     let m = unsafe { ptr.read() };
-    shared.record(RawEvent::mouse(
-        wparam.0 as u32,
-        m.pt.x,
-        m.pt.y,
-        m.mouseData,
-        m.flags,
-        m.time,
-    ));
+    shared.record(
+        RawEvent::mouse(
+            wparam.0 as u32,
+            m.pt.x,
+            m.pt.y,
+            m.mouseData,
+            m.flags,
+            m.time,
+        )
+        .with_hold(hold),
+    );
     wake();
 }
 
@@ -671,6 +675,7 @@ pub fn start_input(consumer: Thread) -> Result<(InputHandle, InputReceiver), Pla
     });
     let receiver = InputReceiver::new(
         shared,
+        &super::PASSWORD_HOLD,
         os::tick_count64,
         layout::fill_scan,
         process::held_modifiers_if_readable,

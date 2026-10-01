@@ -11,7 +11,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
@@ -214,14 +214,32 @@ function run(cmd, args, opts = {}) {
 	execFileSync(cmd, args, { cwd: ROOT, stdio: 'inherit', ...opts });
 }
 
-/** Builds dist/ when it is missing (or when `force`). */
-export function ensureFrontEnd({ force = false } = {}) {
-	const ok =
-		existsSync(join(ROOT, 'dist/overlay.html')) && existsSync(join(ROOT, 'dist/settings.html'));
-	if (ok && !force) return false;
-	console.log(force ? 'building the front end (npm run build)' : 'dist/ is missing: npm run build');
-	run('npm', ['run', 'build']);
-	return true;
+/**
+ * Makes sure a built front end exists and returns its folder. `dist/` (the
+ * default) is built with `npm run build` when it is missing or when
+ * `force`; any other folder gets its own `vite build --outDir`, so a
+ * harness run never reads a dist/ that someone else is rebuilding.
+ */
+export function ensureFrontEnd({ force = false, outDir = 'dist' } = {}) {
+	const dir = resolve(ROOT, outDir);
+	const ok = existsSync(join(dir, 'overlay.html')) && existsSync(join(dir, 'settings.html'));
+	if (ok && !force) return dir;
+	if (dir === resolve(ROOT, 'dist')) {
+		console.log(
+			force ? 'building the front end (npm run build)' : 'dist/ is missing: npm run build'
+		);
+		run('npm', ['run', 'build']);
+	} else {
+		console.log(`building the front end into ${relative(ROOT, dir)} (vite build --outDir)`);
+		run(process.execPath, [
+			join(ROOT, 'node_modules/vite/bin/vite.js'),
+			'build',
+			'--outDir',
+			dir,
+			'--emptyOutDir',
+		]);
+	}
+	return dir;
 }
 
 /** Builds the demo example in release mode and returns the binary path. */
@@ -369,13 +387,23 @@ export async function observeDemo(port) {
 	return { callouts, waitUntil, close: () => ws.close() };
 }
 
-/** Starts `vite preview` for dist/ on a free port and resolves with its base URL. */
-export async function startPreview() {
+/** Starts `vite preview` for a built front end on a free port and resolves with its base URL. */
+export async function startPreview({ outDir = join(ROOT, 'dist') } = {}) {
 	const port = await freePort();
 	const vite = join(ROOT, 'node_modules/vite/bin/vite.js');
 	const child = spawn(
 		process.execPath,
-		[vite, 'preview', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+		[
+			vite,
+			'preview',
+			'--host',
+			'127.0.0.1',
+			'--port',
+			String(port),
+			'--strictPort',
+			'--outDir',
+			outDir,
+		],
 		{ cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] }
 	);
 	let out = '';
