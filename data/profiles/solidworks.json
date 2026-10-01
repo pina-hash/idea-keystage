@@ -12,7 +12,7 @@
 		"typed_values": true,
 		"mouse_captions": true
 	},
-	"data_note": "Every shortcut and mouse entry is sourced from Dassault Systemes published documentation; see sources. Nothing here is authored from memory.",
+	"data_note": "Every shortcut and mouse entry is sourced from Dassault Systemes published documentation; see sources. Nothing here is authored from memory. Quotes are verbatim page text, except entries marked \"evidence\": \"screenshot\", whose quote is a label transcribed from a screenshot on the cited Dassault page (image URL and SHA-256 in the source).",
 	"read": "2026-10-01",
 	"sources": [
 		{
@@ -2065,6 +2065,17 @@
 			"title": "Mapping the Extrude Command (tutorial)",
 			"version": "2026",
 			"read": "2026-10-01"
+		},
+		{
+			"id": "src-294",
+			"url": "https://help.solidworks.com/2025/english/WhatsNew/c_ui_search_commands.htm",
+			"title": "Search Commands (2025 SP2)",
+			"version": "2025",
+			"read": "2026-10-01",
+			"evidence": "screenshot",
+			"image_url": "https://help.solidworks.com/2025/english/WhatsNew/krt1738080155112.image",
+			"image_sha256": "150a8aed109ea30d5984964e9f2b10aef80bbc254fa5ce97df94556a5b9835c8",
+			"note": "The page text says: \"When you use Search Commands, the results include the tools' keyboard shortcuts in parenthesis if they exist.\" The screenshot that follows (276 x 339 PNG, no alt text) shows the results for 'orientation'. Its labels were read from the image by two independent readers on 2026-10-01. It also shows 'View Orientation (SpaceBar)' and 'View Selector (Ctrl+SpaceBar)', which the help documents in text, so it agrees with the text where both exist. No 2026 counterpart exists (the topic and the image are absent under /2026/)."
 		}
 	],
 	"shortcuts": [
@@ -9398,6 +9409,166 @@
 				"src-075"
 			],
 			"quote": "To remove breadcrumbs: | Click an open area of the graphics area or press Esc."
+		},
+		{
+			"id": "kb-360",
+			"keys": [
+				"Ctrl",
+				"1"
+			],
+			"doc_keys": "Ctrl+1",
+			"command": "Front",
+			"description": "Standard view Front, listed with its keyboard shortcut in the Search Commands results shown in the 2025 SP2 What's New.",
+			"group": "Standard views (Search Commands screenshot)",
+			"context": "",
+			"versions": [
+				"2025"
+			],
+			"source_ids": [
+				"src-294"
+			],
+			"quote": "Front (Ctrl+1)",
+			"evidence": "screenshot"
+		},
+		{
+			"id": "kb-361",
+			"keys": [
+				"Ctrl",
+				"2"
+			],
+			"doc_keys": "Ctrl+2",
+			"command": "Back",
+			"description": "Standard view Back, listed with its keyboard shortcut in the Search Commands results shown in the 2025 SP2 What's New.",
+			"group": "Standard views (Search Commands screenshot)",
+			"context": "",
+			"versions": [
+				"2025"
+			],
+			"source_ids": [
+				"src-294"
+			],
+			"quote": "Back (Ctrl+2)",
+			"evidence": "screenshot"
+		},
+		{
+			"id": "kb-362",
+			"keys": [
+				"Ctrl",
+				"3"
+			],
+			"doc_keys": "Ctrl+3",
+			"command": "Left",
+			"description": "Standard view Left, listed with its keyboard shortcut in the Search Commands results shown in the 2025 SP2 What's New.",
+			"group": "Standard views (Search Commands screenshot)",
+			"context": "",
+			"versions": [
+				"2025"
+			],
+			"source_ids": [
+				"src-294"
+			],
+			"quote": "Left (Ctrl+3)",
+			"evidence": "screenshot"
+		},
+		{
+			"id": "kb-363",
+			"keys": [
+				"Ctrl",
+				"4"
+			],
+			"doc_keys": "Ctrl+4",
+			"command": "Right",
+			"description": "Standard view Right, listed with its keyboard shortcut in the Search Commands results shown in the 2025 SP2 What's New.",
+			"group": "Standard views (Search Commands screenshot)",
+			"context": "",
+			"versions": [
+				"2025"
+			],
+			"source_ids": [
+				"src-294"
+			],
+			"quote": "Right (Ctrl+4)",
+			"evidence": "screenshot"
+		},
+		{
+			"id": "kb-364",
+			"keys": [
+				"Ctrl",
+				"5"
+			],
+			"doc_keys": "Ctrl+5",
+			"command": "Top",
+			"description": "Standard view Top, listed with its keyboard shortcut in the Search Commands results shown in the 2025 SP2 What's New.",
+			"group": "Standard views (Search Commands screenshot)",
+			"context": "",
+			"versions": [
+				"2025"
+			],
+			"source_ids": [
+				"src-294"
+			],
+			"quote": "Top (Ctrl+5)",
+			"evidence": "screenshot"
+		},
+		{
+			"id": "kb-365",
+			"keys": [
+				"Ctrl",
+				"6"
+			],
+			"doc_keys": "Ctrl+6",
+			"command": "Bottom",
+			"description": "Standard view Bottom, listed with its keyboard shortcut in the Search Commands results shown in the 2025 SP2 What's New.",
+			"group": "Standard views (Search Commands screenshot)",
+			"context": "",
+			"versions": [
+				"2025"
+			],
+			"source_ids": [
+				"src-294"
+			],
+			"quote": "Bottom (Ctrl+6)",
+			"evidence": "screenshot"
+		},
+		{
+			"id": "kb-366",
+			"keys": [
+				"Ctrl",
+				"7"
+			],
+			"doc_keys": "Ctrl+7",
+			"command": "Isometric",
+			"description": "Standard view Isometric, listed with its keyboard shortcut in the Search Commands results shown in the 2025 SP2 What's New.",
+			"group": "Standard views (Search Commands screenshot)",
+			"context": "",
+			"versions": [
+				"2025"
+			],
+			"source_ids": [
+				"src-294"
+			],
+			"quote": "Isometric (Ctrl+7)",
+			"evidence": "screenshot"
+		},
+		{
+			"id": "kb-367",
+			"keys": [
+				"Ctrl",
+				"8"
+			],
+			"doc_keys": "Ctrl+8",
+			"command": "Normal To",
+			"description": "Standard view Normal To, listed with its keyboard shortcut in the Search Commands results shown in the 2025 SP2 What's New.",
+			"group": "Standard views (Search Commands screenshot)",
+			"context": "",
+			"versions": [
+				"2025"
+			],
+			"source_ids": [
+				"src-294"
+			],
+			"quote": "Normal To (Ctrl+8)",
+			"evidence": "screenshot"
 		}
 	],
 	"mouse": [
@@ -13198,7 +13369,7 @@
 		{
 			"topic": "Ctrl + number key standard view shortcuts (for example Front, Isometric, Normal To)",
 			"url": "https://help.solidworks.com/2025/english/SolidWorks/sldworks/r_standard_views_toolbar.htm",
-			"reason": "Not documented. The Standard Views Toolbar, Orientation, Orientation Dialog Box, View Selector, View Toolbar, Heads-up View Toolbar and Selected Keyboard Shortcuts topics (2025 and 2026) list the standard views and the Spacebar / Ctrl + Spacebar shortcuts but give no key for any individual standard view, and help.solidworks.com SearchEx queries 'Ctrl+1', 'Ctrl+7', 'Ctrl+8', 'Ctrl+1 Front', 'Ctrl+8 Normal To', 'Isometric Ctrl' returned no such statement in either version. Verifier re-ran SearchEx on 2026-10-01 for 'Ctrl+1', 'Ctrl+8', 'Ctrl+7 Isometric', 'Normal To Ctrl', 'Front view shortcut' in both versions (python3 .work/research/kb-tools/swsearch.py <ver> '<query>' 20, output in .work/verify-kb/searches/): no hit assigns a key to a standard view."
+			"reason": "Not documented in text for 2025 or 2026. For 2025 only, Dassault's What's New topic 'Search Commands (2025 SP2)' shows the keys in a screenshot (Front Ctrl+1 to Normal To Ctrl+8); those eight entries are in this file with evidence 'screenshot' and version 2025. No 2026 page, text or image, documents them, so for 2026 this remains a gap. Text searched in both versions: Standard Views Toolbar, Orientation, Orientation Dialog Box, View Selector, View Toolbar, Heads-up View Toolbar, Selected Keyboard Shortcuts, the API swCommands_e list (it names no key for the standard views), and a pattern search of every help topic in both versions (15,452 page texts, 2026-10-01)."
 		},
 		{
 			"topic": "Complete list of default keyboard shortcuts",
@@ -13238,12 +13409,12 @@
 		{
 			"topic": "Middle mouse button double-click (for example to zoom to fit)",
 			"url": "https://help.solidworks.com/2025/english/SolidWorks/sldworks/r_Middle_Mouse_Button.htm",
-			"reason": "not documented: neither the 2025 nor the 2026 Middle Mouse Button Functions page, nor Zoom to Fit, Zoom In/Out, Rotate View, Pan, Selected Keyboard Shortcuts or any other topic read, mentions a middle-button double-click. Zoom to Fit is documented only as F, the View toolbar button, or View > Modify > Zoom to Fit. No entry was made."
+			"reason": "not documented: neither the 2025 nor the 2026 Middle Mouse Button Functions page, nor Zoom to Fit, Zoom In/Out, Rotate View, Pan, Selected Keyboard Shortcuts or any other topic read, mentions a middle-button double-click. Zoom to Fit is documented only as F, the View toolbar button, or View > Modify > Zoom to Fit. No entry was made. A second search of every help topic in both versions found only SOLIDWORKS Treehouse, a separate application ('Double-click the middle mouse button to zoom extents'), which does not apply to SOLIDWORKS document windows."
 		},
 		{
 			"topic": "Which wheel direction (forward or back) zooms in by default",
 			"url": "https://help.solidworks.com/2026/english/SolidWorks/sldworks/r_Middle_Mouse_Button.htm",
-			"reason": "not documented: the pages say only 'Spin the wheel forward and back' and that Tools > Options > System Options > View > 'Reverse mouse wheel zoom direction' changes the direction. No page states the default mapping, so wheel entries use action 'wheel' rather than wheel_up or wheel_down."
+			"reason": "not documented: the pages say only 'Spin the wheel forward and back' and that Tools > Options > System Options > View > 'Reverse mouse wheel zoom direction' changes the direction. No page states the default mapping, so wheel entries use action 'wheel' rather than wheel_up or wheel_down. A second search of every help topic in both versions found the direction stated only for eDrawings, a separate product, which is not used here."
 		},
 		{
 			"topic": "Factory default mouse gesture assignments per document type (part, assembly, drawing, sketch)",
