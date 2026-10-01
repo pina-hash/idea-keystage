@@ -14,7 +14,8 @@
 		"withGlobalTauri": false,
 		"windows": [],
 		"security": {
-			"csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:*; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; media-src 'self' data:"
+			"csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'",
+			"dangerousDisableAssetCspModification": ["style-src"]
 		}
 	},
 	"bundle": {
@@ -28,7 +29,21 @@
 			"icons/icon.ico"
 		],
 		"category": "Productivity",
+		"publisher": "IDEA Engineering Pathway",
+		"copyright": "Copyright 2026 IDEA Engineering Pathway",
 		"shortDescription": "Keystroke, keyboard and mouse visualizer for tutorial recording",
-		"copyright": "IDEA Engineering Pathway"
+		"longDescription": "IDEA Keystage shows keystrokes, a keyboard and the mouse on screen and in OBS while you record SolidWorks tutorials. It runs on this computer only: it makes no network requests and never shows what you type in password fields.",
+		"windows": {
+			"webviewInstallMode": {
+				"type": "downloadBootstrapper",
+				"silent": true
+			},
+			"nsis": {
+				"installMode": "currentUser",
+				"displayLanguageSelector": false,
+				"languages": ["English"],
+				"startMenuFolder": "IDEA Keystage"
+			}
+		}
 	}
 }

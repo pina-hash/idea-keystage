@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-shortcuts-import-clear"
+description = "Enables the shortcuts_import_clear command without any pre-configured scope."
+commands.allow = ["shortcuts_import_clear"]
+
+[[permission]]
+identifier = "deny-shortcuts-import-clear"
+description = "Denies the shortcuts_import_clear command without any pre-configured scope."
+commands.deny = ["shortcuts_import_clear"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-profile-shortcuts"
+description = "Enables the profile_shortcuts command without any pre-configured scope."
+commands.allow = ["profile_shortcuts"]
+
+[[permission]]
+identifier = "deny-profile-shortcuts"
+description = "Denies the profile_shortcuts command without any pre-configured scope."
+commands.deny = ["profile_shortcuts"]

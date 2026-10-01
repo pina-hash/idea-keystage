@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-shortcuts-import-preview"
+description = "Enables the shortcuts_import_preview command without any pre-configured scope."
+commands.allow = ["shortcuts_import_preview"]
+
+[[permission]]
+identifier = "deny-shortcuts-import-preview"
+description = "Denies the shortcuts_import_preview command without any pre-configured scope."
+commands.deny = ["shortcuts_import_preview"]

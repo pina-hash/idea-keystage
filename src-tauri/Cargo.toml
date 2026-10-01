@@ -44,6 +44,9 @@ parking_lot.workspace = true
 base64.workspace = true
 rodio.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 # Owned by the Windows platform layer (src/platform). Each feature is listed
 # with the APIs that need it; see .work/research/windows.md for the sources.

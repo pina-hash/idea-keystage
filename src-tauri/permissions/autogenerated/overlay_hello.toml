@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-overlay-hello"
+description = "Enables the overlay_hello command without any pre-configured scope."
+commands.allow = ["overlay_hello"]
+
+[[permission]]
+identifier = "deny-overlay-hello"
+description = "Denies the overlay_hello command without any pre-configured scope."
+commands.deny = ["overlay_hello"]

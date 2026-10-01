@@ -1,0 +1,7 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "overlay",
+	"description": "Host A, the native overlay: it listens for overlay messages and asks for the hello snapshot. Nothing else.",
+	"windows": ["overlay-*"],
+	"permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "allow-overlay-hello"]
+}
