@@ -154,7 +154,7 @@ async fn health() {
     assert_eq!(r.status, 200);
     assert_eq!(
         String::from_utf8(r.body.clone()).unwrap(),
-        r#"{"ok":true,"app":"IDEA Keystage","version":"0.2.0","protocol":1}"#
+        r#"{"ok":true,"app":"IDEA Keystage","version":"0.3.0","protocol":1}"#
     );
     assert_eq!(r.header("content-type"), Some("application/json"));
     assert_eq!(r.header("cache-control"), Some("no-store"));
@@ -551,4 +551,184 @@ fn missing_overlay_html_is_a_clear_500() {
             "The overlay page is missing from this build."
         );
     });
+}
+
+struct FakeControl {
+    token: std::sync::Mutex<Option<String>>,
+}
+
+impl keystage_server::Control for FakeControl {
+    fn token(&self) -> Option<String> {
+        self.token.lock().unwrap().clone()
+    }
+    fn tools(&self) -> serde_json::Value {
+        serde_json::json!([{"name": "status"}])
+    }
+    fn call(&self, tool: &str, args: serde_json::Value) -> Result<serde_json::Value, String> {
+        match tool {
+            "status" => Ok(serde_json::json!({"echo": args})),
+            _ => Err("Unknown tool.".into()),
+        }
+    }
+}
+
+async fn http_body(
+    port: u16,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> (u16, String) {
+    let mut s = TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+        .await
+        .unwrap();
+    let mut req = format!("{method} {path} HTTP/1.1\r\nConnection: close\r\nHost: 127.0.0.1:{port}\r\nContent-Length: {}\r\n", body.len());
+    for (k, v) in headers {
+        req.push_str(&format!("{k}: {v}\r\n"));
+    }
+    req.push_str("\r\n");
+    req.push_str(body);
+    s.write_all(req.as_bytes()).await.unwrap();
+    let mut raw = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut raw))
+        .await
+        .expect("in time")
+        .unwrap();
+    let text = String::from_utf8_lossy(&raw).to_string();
+    let status = text
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let body = text
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| b.to_string())
+        .unwrap_or_default();
+    (status, body)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_control_api_needs_the_token_and_no_browser() {
+    let token = "c".repeat(64);
+    let control = Arc::new(FakeControl {
+        token: std::sync::Mutex::new(Some(token.clone())),
+    });
+    let server =
+        Server::start_with_control(ServerConfig::new(0), assets(), hub(), Some(control.clone()))
+            .unwrap();
+    let port = server.port();
+    let auth = format!("Bearer {token}");
+    let json = ("Content-Type", "application/json");
+    let ok = [("Authorization", auth.as_str()), json];
+
+    let (s, b) = http_body(port, "GET", "/api/control/tools", &ok, "").await;
+    assert_eq!(s, 200, "{b}");
+    assert!(b.contains("\"status\""));
+    let (s, b) = http_body(
+        port,
+        "POST",
+        "/api/control/call",
+        &ok,
+        r#"{"tool":"status","arguments":{"a":1}}"#,
+    )
+    .await;
+    assert_eq!(s, 200);
+    let v: serde_json::Value = serde_json::from_str(&b).unwrap();
+    assert_eq!(v["ok"], true);
+    assert_eq!(v["result"]["echo"]["a"], 1);
+    let (_, b) = http_body(port, "POST", "/api/control/call", &ok, r#"{"tool":"nope"}"#).await;
+    assert!(b.contains("Unknown tool."));
+
+    // No token, a wrong one, a browser's headers, plain text: refused.
+    assert_eq!(
+        http_body(port, "POST", "/api/control/call", &[json], "{}")
+            .await
+            .0,
+        401
+    );
+    let wrong = format!("Bearer {}", "d".repeat(64));
+    assert_eq!(
+        http_body(
+            port,
+            "GET",
+            "/api/control/tools",
+            &[("Authorization", wrong.as_str())],
+            ""
+        )
+        .await
+        .0,
+        401
+    );
+    let browser = [
+        ("Authorization", auth.as_str()),
+        json,
+        ("Origin", "https://evil.example"),
+    ];
+    assert_eq!(
+        http_body(port, "POST", "/api/control/call", &browser, "{}")
+            .await
+            .0,
+        403
+    );
+    let ours = [
+        ("Authorization", auth.as_str()),
+        ("Origin", "http://127.0.0.1:1"),
+    ];
+    assert_eq!(
+        http_body(port, "GET", "/api/control/tools", &ours, "")
+            .await
+            .0,
+        403
+    );
+    let text = [
+        ("Authorization", auth.as_str()),
+        ("Content-Type", "text/plain"),
+    ];
+    assert_eq!(
+        http_body(
+            port,
+            "POST",
+            "/api/control/call",
+            &text,
+            r#"{"tool":"status"}"#
+        )
+        .await
+        .0,
+        415
+    );
+    assert_eq!(
+        http_body(port, "GET", "/api/control/call", &ok, "").await.0,
+        404,
+        "wrong method"
+    );
+    let big = format!(
+        r#"{{"tool":"status","arguments":{{"x":"{}"}}}}"#,
+        "a".repeat(keystage_server::control::MAX_BODY)
+    );
+    assert_eq!(
+        http_body(port, "POST", "/api/control/call", &ok, &big)
+            .await
+            .0,
+        413
+    );
+
+    // Connector off: the routes do not exist.
+    *control.token.lock().unwrap() = None;
+    assert_eq!(
+        http_body(port, "GET", "/api/control/tools", &ok, "")
+            .await
+            .0,
+        404
+    );
+    server.shutdown();
+
+    // A server started without control has no control routes.
+    let plain = start(hub());
+    assert_eq!(
+        http_body(plain.port(), "GET", "/api/control/tools", &ok, "")
+            .await
+            .0,
+        404
+    );
+    plain.shutdown();
 }

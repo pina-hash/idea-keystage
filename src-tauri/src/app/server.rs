@@ -57,6 +57,7 @@ pub struct ServerManager {
     hub: Hub,
     assets: Arc<dyn Assets>,
     inner: Mutex<Inner>,
+    control: std::sync::OnceLock<Arc<dyn keystage_server::Control>>,
 }
 
 impl ServerManager {
@@ -69,7 +70,13 @@ impl ServerManager {
                 port: 0,
                 error: None,
             }),
+            control: std::sync::OnceLock::new(),
         }
+    }
+
+    /// The connector's control API; set once, before the first `ensure`.
+    pub fn set_control(&self, c: Arc<dyn keystage_server::Control>) {
+        let _ = self.control.set(c);
     }
 
     pub fn hub(&self) -> &Hub {
@@ -88,10 +95,11 @@ impl ServerManager {
             old.shutdown();
         }
         inner.port = port;
-        match Server::start(
+        match Server::start_with_control(
             ServerConfig::new(port),
             self.assets.clone(),
             self.hub.clone(),
+            self.control.get().cloned(),
         ) {
             Ok(h) => {
                 inner.port = h.port();

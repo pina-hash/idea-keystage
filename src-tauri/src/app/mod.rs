@@ -4,7 +4,9 @@
 //! their logic testable without a Tauri runtime.
 
 pub mod actions;
+pub mod automation;
 pub mod commands;
+pub mod control;
 pub mod exposure;
 pub mod hotkeys;
 pub mod icons;

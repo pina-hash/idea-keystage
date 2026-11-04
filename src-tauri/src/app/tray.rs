@@ -5,8 +5,8 @@
 //! * The menu: a status line (Active, Paused or Hidden, the profile, the
 //!   recording timecode), Pause or Resume, Keyboard visual, SolidWorks mode
 //!   (Auto, On, Off), Native overlay, Start or Stop session log, Add chapter
-//!   marker, the update line (what the automatic update is doing), Check
-//!   for updates, Open settings, Quit.
+//!   marker, Allow Claude to move the mouse and type, the update line (what
+//!   the automatic update is doing), Check for updates, Open settings, Quit.
 //! * The tooltip mirrors the status line. A left click opens settings.
 //!
 //! Menu clicks arrive on the main thread and only queue an action. Updates
@@ -35,6 +35,7 @@ const ID_SW_OFF: &str = "sw-off";
 const ID_NATIVE: &str = "native";
 const ID_SESSION: &str = "session";
 const ID_MARKER: &str = "marker";
+const ID_ALLOW_INPUT: &str = "allow-input";
 const ID_UPDATE_LINE: &str = "update-line";
 const ID_CHECK_UPDATES: &str = "check-updates";
 const ID_SETTINGS: &str = "settings";
@@ -55,6 +56,8 @@ pub struct TrayView {
     pub marker_enabled: bool,
     /// The update status sentence.
     pub update_line: String,
+    /// "Allow Claude to move the mouse and type".
+    pub allow_input: bool,
 }
 
 /// The action for a menu item id.
@@ -69,6 +72,7 @@ pub fn menu_action(id: &str) -> Option<Action> {
         ID_SESSION => Action::ToggleSession,
         ID_MARKER => Action::AddMarker,
         ID_CHECK_UPDATES => Action::CheckUpdates,
+        ID_ALLOW_INPUT => Action::ToggleAllowInput,
         ID_SETTINGS => Action::OpenSettings,
         ID_QUIT => Action::Quit,
         _ => return None,
@@ -106,6 +110,7 @@ pub struct Tray<R: Runtime> {
     session: MenuItem<R>,
     marker: MenuItem<R>,
     update_line: MenuItem<R>,
+    allow_input: CheckMenuItem<R>,
     last: Mutex<Option<TrayView>>,
 }
 
@@ -165,6 +170,14 @@ impl<R: Runtime> Tray<R> {
             none,
         )?;
         let check = MenuItem::with_id(app, ID_CHECK_UPDATES, "Check for updates", true, none)?;
+        let allow_input = CheckMenuItem::with_id(
+            app,
+            ID_ALLOW_INPUT,
+            "Allow Claude to move the mouse and type",
+            true,
+            view.allow_input,
+            none,
+        )?;
         let settings = MenuItem::with_id(app, ID_SETTINGS, "Open settings", true, none)?;
         let quit = MenuItem::with_id(app, ID_QUIT, "Quit IDEA Keystage", true, none)?;
         let sep1 = PredefinedMenuItem::separator(app)?;
@@ -185,6 +198,7 @@ impl<R: Runtime> Tray<R> {
                 &session,
                 &marker,
                 &sep3,
+                &allow_input,
                 &update_line,
                 &check,
                 &sep4,
@@ -229,6 +243,7 @@ impl<R: Runtime> Tray<R> {
             session,
             marker,
             update_line,
+            allow_input,
             last: Mutex::new(Some(view.clone())),
         })
     }
@@ -289,6 +304,9 @@ impl<R: Runtime> Tray<R> {
                     .set_text(keystage_update::machine::menu_line(&view.update_line)),
             );
         }
+        if all || l.allow_input != view.allow_input {
+            check(self.allow_input.set_checked(view.allow_input));
+        }
         if ok {
             *self.last.lock() = Some(view.clone());
         } else {
@@ -326,6 +344,7 @@ mod tests {
             ID_SESSION,
             ID_MARKER,
             ID_CHECK_UPDATES,
+            ID_ALLOW_INPUT,
             ID_SETTINGS,
         ] {
             assert!(menu_action(id).is_some(), "{id}");

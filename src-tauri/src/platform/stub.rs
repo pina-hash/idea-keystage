@@ -180,9 +180,62 @@ pub fn os_build() -> Option<u32> {
     None
 }
 
+pub fn random_bytes() -> Option<[u8; 32]> {
+    use std::io::Read;
+    let mut b = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .ok()?
+        .read_exact(&mut b)
+        .ok()?;
+    Some(b)
+}
+
 /// Updates install only on Windows.
 pub fn launch(_exe: &std::path::Path, _parameters: &str) -> Result<(), PlatformError> {
     Err(PlatformError::Unsupported)
+}
+
+/// The connector's input and window calls exist only on Windows.
+pub mod automation {
+    use keystage_automation::keys::Key;
+    use keystage_automation::motion::Rect;
+    use keystage_automation::occlude::WindowInfo;
+    use keystage_automation::script::Button;
+
+    use crate::platform::PlatformError;
+
+    pub fn virtual_screen() -> Rect {
+        Rect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        }
+    }
+    pub fn cursor_pos() -> Option<(i32, i32)> {
+        None
+    }
+    pub fn move_to(_x: i32, _y: i32, _screen: &Rect) -> Result<(), PlatformError> {
+        Err(PlatformError::Unsupported)
+    }
+    pub fn button(_b: Button, _down: bool) -> Result<(), PlatformError> {
+        Err(PlatformError::Unsupported)
+    }
+    pub fn wheel(_delta: i32, _horizontal: bool) -> Result<(), PlatformError> {
+        Err(PlatformError::Unsupported)
+    }
+    pub fn key(_k: Key, _down: bool) -> Result<(), PlatformError> {
+        Err(PlatformError::Unsupported)
+    }
+    pub fn top_level_windows() -> Vec<WindowInfo> {
+        Vec::new()
+    }
+    pub fn foreground_window() -> Option<(String, Rect)> {
+        None
+    }
+    pub fn region_hash(_r: &Rect) -> Option<u64> {
+        None
+    }
 }
 
 #[cfg(test)]

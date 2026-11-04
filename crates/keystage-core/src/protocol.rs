@@ -228,6 +228,10 @@ pub struct AppState {
     /// From OBS; `None` when not connected.
     pub recording: Option<RecordingState>,
     pub session: Option<SessionState>,
+    /// The connector is moving the mouse or typing (`perform` and the
+    /// pointer and key tools). Host A shows an "Automated" pill.
+    #[serde(default)]
+    pub automated: bool,
 }
 
 impl Default for AppState {
@@ -242,6 +246,7 @@ impl Default for AppState {
             obs_clients: 0,
             recording: None,
             session: None,
+            automated: false,
         }
     }
 }
@@ -657,7 +662,7 @@ mod tests {
             &ServerMsg::State {
                 state: AppState::default(),
             },
-            r#"{"t":"state","state":{"paused":false,"suppressed":null,"profile":null,"solidworks_mode":"auto","keyboard_visible":true,"native_visible":true,"obs_clients":0,"recording":null,"session":null}}"#,
+            r#"{"t":"state","state":{"paused":false,"suppressed":null,"profile":null,"solidworks_mode":"auto","keyboard_visible":true,"native_visible":true,"obs_clients":0,"recording":null,"session":null,"automated":false}}"#,
         );
         let busy = AppState {
             paused: true,
@@ -680,10 +685,11 @@ mod tests {
                 started_ms: 1000,
                 markers: 3,
             }),
+            automated: true,
         };
         round_trip(
             &ServerMsg::State { state: busy },
-            r#"{"t":"state","state":{"paused":true,"suppressed":"excluded","profile":{"id":"solidworks","name":"SolidWorks"},"solidworks_mode":"on","keyboard_visible":false,"native_visible":false,"obs_clients":2,"recording":{"active":true,"paused":false,"timecode":"00:01:02.345"},"session":{"active":true,"started_ms":1000,"markers":3}}}"#,
+            r#"{"t":"state","state":{"paused":true,"suppressed":"excluded","profile":{"id":"solidworks","name":"SolidWorks"},"solidworks_mode":"on","keyboard_visible":false,"native_visible":false,"obs_clients":2,"recording":{"active":true,"paused":false,"timecode":"00:01:02.345"},"session":{"active":true,"started_ms":1000,"markers":3},"automated":true}}"#,
         );
     }
 
@@ -703,11 +709,11 @@ mod tests {
     fn golden_hello() {
         let msg = ServerMsg::hello(OverlayConfig::default(), AppState::default(), None);
         let expected = format!(
-            r#"{{"t":"hello","v":1,"app":"IDEA Keystage","version":"{}","config":{},"state":{{"paused":false,"suppressed":null,"profile":null,"solidworks_mode":"auto","keyboard_visible":true,"native_visible":true,"obs_clients":0,"recording":null,"session":null}},"legends":null}}"#,
+            r#"{{"t":"hello","v":1,"app":"IDEA Keystage","version":"{}","config":{},"state":{{"paused":false,"suppressed":null,"profile":null,"solidworks_mode":"auto","keyboard_visible":true,"native_visible":true,"obs_clients":0,"recording":null,"session":null,"automated":false}},"legends":null}}"#,
             APP_VERSION, DEFAULT_CONFIG_JSON
         );
         round_trip(&msg, &expected);
-        assert_eq!(APP_VERSION, "0.2.0");
+        assert_eq!(APP_VERSION, "0.3.0");
     }
 
     #[test]

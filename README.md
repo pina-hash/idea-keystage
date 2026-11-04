@@ -98,6 +98,10 @@ IDEA Keystage has to see your keyboard and mouse to show them. Here is exactly w
 - **Updates.** Shortly after it starts and every 6 hours, it asks GitHub whether this repository has a newer release. A newer installer is downloaded, checked against the release's `SHA256SUMS.txt`, and installed by itself, never while a Session Log or an OBS recording runs; the app restarts in the tray. The request sends nothing about you. Turn it off with "Check for updates automatically" on the General page; Check now still works.
 - **What it never does.** It makes no other internet connection: no telemetry, no account. Its overlay server listens only on `127.0.0.1` (this computer) and refuses web pages from anywhere else. It connects to OBS only if you turn that on. Your OBS password is stored encrypted with Windows DPAPI for your account and is left out of settings exports.
 
+## Claude connector
+
+IDEA Keystage 0.3.0 has a connector for the Claude desktop app: Claude can start Session Logs, start and stop OBS recordings, change the overlay, check that nothing covers the screen, and, only after you turn on "Allow Claude to move the mouse and type", move the real mouse and type like a person to record a take. Touching the mouse or keyboard stops it at once; it never types into a password field; it talks only to IDEA Keystage on this computer. Install it by double-clicking `IDEA-Keystage_<version>_connector.mcpb` from the releases page. Steps: `docs/MCP.md`.
+
 ## Hotkeys
 
 | Action                              | Default            |

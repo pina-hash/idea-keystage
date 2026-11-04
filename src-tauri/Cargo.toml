@@ -25,6 +25,7 @@ keystage-session.workspace = true
 keystage-server.workspace = true
 keystage-obs.workspace = true
 keystage-update.workspace = true
+keystage-automation.workspace = true
 tauri = { workspace = true, features = ["tray-icon", "image-png"] }
 tauri-plugin-single-instance.workspace = true
 tauri-plugin-global-shortcut.workspace = true
@@ -62,7 +63,8 @@ windows = { workspace = true, features = [
     "Win32_UI_Accessibility",           # SetWinEventHook, UI Automation IsPassword
     "Win32_System_Com",                 # CoInitializeEx, CoCreateInstance (UI Automation)
     "Win32_System_RemoteDesktop",       # WTSRegisterSessionNotification
-    "Win32_Graphics_Gdi",               # EnumDisplayMonitors, GetMonitorInfoW, RegisterClassExW gate
+    "Win32_Graphics_Gdi",               # EnumDisplayMonitors, GetMonitorInfoW, RegisterClassExW gate, BitBlt and GetDIBits (wait_idle)
+    "Win32_Graphics_Dwm",               # DwmGetWindowAttribute DWMWA_CLOAKED (occluders)
     "Win32_Devices_Display",            # QueryDisplayConfig, DisplayConfigGetDeviceInfo (monitor names)
     "Win32_UI_HiDpi",                   # GetDpiForMonitor, GetDpiForWindow
     "Win32_UI_Shell",                   # SetWindowSubclass (overlay style guard)

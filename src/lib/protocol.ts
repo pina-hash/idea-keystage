@@ -187,6 +187,8 @@ export interface AppState {
 	obs_clients: number;
 	recording: RecordingState | null;
 	session: SessionState | null;
+	/** The connector is moving the mouse or typing (Host A shows "Automated"). */
+	automated: boolean;
 }
 
 /** Display legends for the active Windows layout, keyed by physical id ("sc:1E"). */
@@ -388,6 +390,7 @@ export function defaultAppState(): AppState {
 		obs_clients: 0,
 		recording: null,
 		session: null,
+		automated: false,
 	};
 }
 
@@ -547,7 +550,8 @@ export function isAppState(v: unknown): v is AppState {
 		isBool(v.native_visible) &&
 		isNum(v.obs_clients) &&
 		(v.recording === null || isRecording(v.recording)) &&
-		(v.session === null || isSession(v.session))
+		(v.session === null || isSession(v.session)) &&
+		isBool(v.automated)
 	);
 }
 
@@ -721,6 +725,7 @@ export function normalizeAppState(v: unknown): AppState | null {
 		obs_clients: isNum(v.obs_clients) ? Math.max(0, Math.round(v.obs_clients)) : 0,
 		recording: isRecording(v.recording) ? { ...v.recording } : null,
 		session: isSession(v.session) ? { ...v.session } : null,
+		automated: pickBool(v.automated, false),
 	};
 }
 

@@ -191,12 +191,27 @@ impl SessionManager {
     }
 
     pub fn add_marker(&mut self, t_ms: u64, name: Option<&str>) -> Result<usize, String> {
+        self.add_marker_step(t_ms, name, None)
+    }
+
+    /// A marker with a tutorial step id (session format 1.2).
+    pub fn add_marker_step(
+        &mut self,
+        t_ms: u64,
+        name: Option<&str>,
+        step: Option<&str>,
+    ) -> Result<usize, String> {
         match self.active.as_mut() {
             Some((log, _)) => log
-                .add_marker(t_ms, name)
+                .add_marker_step(t_ms, name, step)
                 .map_err(|e| sentence(&e.to_string())),
             None => Err("Start a session log first.".into()),
         }
+    }
+
+    /// The running session (with its OBS record), for the video clock.
+    pub fn running(&self) -> Option<Session> {
+        self.active.as_ref().map(|(l, _)| l.session().clone())
     }
 
     pub fn record_event(&mut self, t_ms: u64, event: RecordEvent) {

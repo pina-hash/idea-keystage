@@ -233,6 +233,25 @@ impl ObsBridge {
         st.recording.as_ref().map(|r| r.to_wire())
     }
 
+    /// One of the connector's OBS requests: sent under the lock, answered
+    /// outside it, so a slow OBS never holds up the status.
+    pub fn request(
+        &self,
+        kind: keystage_obs::ObsRequest,
+    ) -> Result<serde_json::Value, keystage_obs::RequestError> {
+        let rx = match self.client.lock().as_ref() {
+            Some((c, _, _)) => c.request(kind),
+            None => return Err(keystage_obs::RequestError::NotConnected),
+        };
+        match rx.recv_timeout(std::time::Duration::from_secs(8)) {
+            Ok(r) => r,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                Err(keystage_obs::RequestError::Timeout)
+            }
+            Err(_) => Err(keystage_obs::RequestError::NotConnected),
+        }
+    }
+
     /// Mirrors a chapter marker into OBS (fire and forget).
     pub fn add_chapter(&self, name: Option<&str>) {
         if let Some((c, _, _)) = self.client.lock().as_ref() {

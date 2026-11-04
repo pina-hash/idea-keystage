@@ -28,7 +28,7 @@ export function scenarioFrom(search: string): Scenario {
 	return (SCENARIOS as readonly string[]).includes(v ?? '') ? (v as Scenario) : 'normal';
 }
 
-export const MOCK_VERSION = '0.2.0';
+export const MOCK_VERSION = '0.3.0';
 
 /** `Status.notices` in the `notices` scenario, worded as the app shell words them. */
 export const MOCK_NOTICES: readonly string[] = [

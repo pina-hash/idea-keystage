@@ -174,6 +174,7 @@ export function createMockBackend(opts: MockOptions): MockBackend {
 						markers: s.session.markers,
 					}
 				: null,
+			automated: false,
 		};
 	}
 

@@ -80,6 +80,7 @@ fn busy_state() -> AppState {
             started_ms: 1000,
             markers: 2,
         }),
+        automated: false,
     }
 }
 

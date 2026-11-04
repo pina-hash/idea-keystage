@@ -122,6 +122,24 @@
 		</Row>
 	</Card>
 
+	<Card title="Claude connector">
+		<Row
+			label="Allow the IDEA Keystage connector"
+			help="Lets Claude on this computer read IDEA Keystage's state, start session logs and OBS recordings, and change the overlay. Only programs that hold this computer's connector key can use it."
+		>
+			<Switch bind:checked={s.automation.connector} label="Allow the IDEA Keystage connector" />
+		</Row>
+		<Row
+			label="Allow Claude to move the mouse and type"
+			help="Lets Claude move the real cursor, click, drag, scroll and type to record a tutorial. Touching the mouse or keyboard stops it at once, and it never types into a password field."
+		>
+			<Switch
+				bind:checked={s.automation.allow_input}
+				label="Allow Claude to move the mouse and type"
+			/>
+		</Row>
+	</Card>
+
 	<Card title="This window">
 		<Row
 			label="Look"

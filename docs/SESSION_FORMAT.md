@@ -1,4 +1,4 @@
-# Session file format: `keystage.session/1.1`
+# Session file format: `keystage.session/1.2`
 
 A Session Log is a record of what the overlay showed while you recorded. This page documents its JSON file, which is also what the JSON export writes. Source of truth: `crates/keystage-session/src/session.rs` (`Session`), `src/clock.rs` (`RecordingLog`, `RecordingClock`), `src/export.rs`, the core's `Callout` (`crates/keystage-core/src/event.rs`), and the golden file `crates/keystage-session/tests/golden/obs.json.golden` (a complete example).
 
@@ -10,7 +10,7 @@ The app writes the file only when a session stops (with `session.autosave` on, t
 
 ## Versioning
 
-- `schema` is `"keystage.session/<major>[.<minor>]"`. This version (app 0.2.0) writes `keystage.session/1.1`. Version 1.1 added the callout fields `x`, `y` and `monitor` and the top-level `pointer` and `pointer_truncated`; app 0.1.0 wrote `keystage.session/1` and reads 1.1 files: it keeps `pointer` as an unknown field, but a marker rename saved by 0.1.0 drops the callout points.
+- `schema` is `"keystage.session/<major>[.<minor>]"`. App 0.3.0 writes `keystage.session/1.2`, which added the marker field `step`. App 0.2.0 wrote `keystage.session/1.1`. Version 1.1 added the callout fields `x`, `y` and `monitor` and the top-level `pointer` and `pointer_truncated`; app 0.1.0 wrote `keystage.session/1` and reads 1.1 files: it keeps `pointer` as an unknown field, but a marker rename saved by 0.1.0 drops the callout points.
 - A reader accepts `keystage.session/1` and any `keystage.session/1.x`. A different major version, or a missing `schema`, is refused with: the session file uses format "<found>", which this version cannot read.
 - Minor versions only add fields. Unknown top-level fields are kept on load and written back on save, so renaming a marker in an older app never drops data written by a newer one.
 - Every field except `schema`, `id`, `started`, `started_unix_ms` and `start_ms` may be missing and takes its default.
@@ -20,9 +20,9 @@ The app writes the file only when a session stops (with `session.autosave` on, t
 
 | Field               | Type              | Meaning                                                                                                                                        |
 | ------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schema`            | string            | `"keystage.session/1.1"`                                                                                                                       |
+| `schema`            | string            | `"keystage.session/1.2"`                                                                                                                       |
 | `id`                | string            | Session id, safe as a file name. The default is the UTC start time, `2026-10-01T14-03-22Z`. The app names the file `<id>.json`.                |
-| `app`               | object            | `{ "name": "IDEA Keystage", "version": "0.2.0" }`, the app that wrote it                                                                       |
+| `app`               | object            | `{ "name": "IDEA Keystage", "version": "0.3.0" }`, the app that wrote it                                                                       |
 | `started`           | string            | Start, ISO 8601 UTC with milliseconds: `2026-10-01T14:00:00.000Z`                                                                              |
 | `started_unix_ms`   | integer           | Start, Unix milliseconds                                                                                                                       |
 | `ended`             | string or null    | Stop, ISO 8601 UTC; null while the session runs (or if the app ended without stopping it)                                                      |
@@ -38,10 +38,11 @@ The app writes the file only when a session stops (with `session.autosave` on, t
 
 ## `markers[]`
 
-| Field  | Type    | Meaning                                                                                                                                                                                           |
-| ------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `t_ms` | integer | Monotonic time the marker was added                                                                                                                                                               |
-| `name` | string  | 1 to 100 characters, whitespace collapsed, no control characters. A marker added without a name is `Chapter <n>`. A rename (`session_rename_marker`, by 0-based index in time order) replaces it. |
+| Field  | Type             | Meaning                                                                                                                                                                                           |
+| ------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `t_ms` | integer          | Monotonic time the marker was added                                                                                                                                                               |
+| `name` | string           | 1 to 100 characters, whitespace collapsed, no control characters. A marker added without a name is `Chapter <n>`. A rename (`session_rename_marker`, by 0-based index in time order) replaces it. |
+| `step` | string, optional | 1.2. A tutorial step id the marker belongs to (set by the connector: `session_marker` with `step`, or a `perform` marker), 1 to 64 characters                                                     |
 
 At most 1,000 markers. Markers always go to the Session Log; when OBS is connected and recording in a format that supports chapters (Hybrid MP4, or Hybrid MOV from OBS 32), the app also adds them to the recording.
 
@@ -117,9 +118,9 @@ Abbreviated from `crates/keystage-session/tests/golden/obs.json.golden` (which a
 
 ```json
 {
-	"schema": "keystage.session/1.1",
+	"schema": "keystage.session/1.2",
 	"id": "2026-10-01T14-00-00Z",
-	"app": { "name": "IDEA Keystage", "version": "0.2.0" },
+	"app": { "name": "IDEA Keystage", "version": "0.3.0" },
 	"started": "2026-10-01T14:00:00.000Z",
 	"started_unix_ms": 1790863200000,
 	"ended": "2026-10-01T14:01:35.000Z",

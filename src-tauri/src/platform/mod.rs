@@ -43,6 +43,9 @@ use std::thread::Thread;
 use crossbeam_channel::Receiver;
 use keystage_core::ipc::Monitor;
 
+/// The connector's `SendInput`, cursor, window and screen calls
+/// (ARCHITECTURE.md section 14). Off Windows they refuse or return nothing.
+pub use backend::automation;
 pub use backend::{InputHandle, WatcherHandle};
 pub use context::{
     classify_foreground, exe_file_name, is_edit_class, win32_verdict, ContextEvent, ForegroundInfo,
@@ -51,6 +54,24 @@ pub use context::{
 pub use error::PlatformError;
 pub use input::{InputReceiver, QUEUE_CAPACITY};
 pub use legend_table::LegendTable;
+
+/// Keyboard and mouse events a person made (no injected flag), counted by
+/// the input receiver; physical Escape presses are also counted alone.
+/// The connector's abort watch compares them (ARCHITECTURE.md section 14).
+pub(crate) static HUMAN_EVENTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub(crate) static HUMAN_ESCAPES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// `(events, escapes)` a person made since the app started.
+///
+/// Threading: any thread.
+pub fn human_input() -> (u64, u64) {
+    use std::sync::atomic::Ordering;
+    (
+        HUMAN_EVENTS.load(Ordering::Relaxed),
+        HUMAN_ESCAPES.load(Ordering::Relaxed),
+    )
+}
 
 /// The app's monotonic millisecond clock. Hook timestamps are rebased onto
 /// it, so `Processor::tick(now_ms())` and event times agree. On Windows it
@@ -224,6 +245,14 @@ pub fn dpapi_unprotect(blob_b64: &str) -> Result<String, PlatformError> {
 /// Threading: any thread.
 pub fn os_build() -> Option<u32> {
     backend::os_build()
+}
+
+/// 32 bytes from the system's random source (`BCryptGenRandom` on
+/// Windows, `/dev/urandom` elsewhere), or `None`.
+///
+/// Threading: any thread.
+pub fn random_bytes() -> Option<[u8; 32]> {
+    backend::random_bytes()
 }
 
 /// Starts a program with a parameter string and returns at once (the

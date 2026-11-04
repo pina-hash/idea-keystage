@@ -2037,12 +2037,13 @@ dependencies = [
 
 [[package]]
 name = "idea-keystage"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "crossbeam-channel",
  "crossbeam-queue",
+ "keystage-automation",
  "keystage-core",
  "keystage-obs",
  "keystage-server",
@@ -2349,8 +2350,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "keystage-automation"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "keystage-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -2358,8 +2369,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "keystage-mcp"
+version = "0.3.0"
+dependencies = [
+ "keystage-automation",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "keystage-obs"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
@@ -2375,10 +2396,11 @@ dependencies = [
 
 [[package]]
 name = "keystage-server"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "futures-util",
+ "keystage-automation",
  "keystage-core",
  "mime_guess",
  "serde",
@@ -2392,7 +2414,7 @@ dependencies = [
 
 [[package]]
 name = "keystage-session"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "keystage-core",
  "serde",
@@ -2403,7 +2425,7 @@ dependencies = [
 
 [[package]]
 name = "keystage-update"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "keystage-core",
  "serde",

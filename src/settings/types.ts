@@ -114,6 +114,14 @@ export interface SessionSettings {
 	tutorial_capture: boolean;
 }
 
+/** The IDEA Keystage connector (ARCHITECTURE.md section 14). */
+export interface AutomationSettings {
+	/** "Allow the IDEA Keystage connector". */
+	connector: boolean;
+	/** "Allow Claude to move the mouse and type". Off by default. */
+	allow_input: boolean;
+}
+
 /** Automatic updates (ARCHITECTURE.md section 13). */
 export interface UpdateSettings {
 	auto: boolean;
@@ -144,6 +152,7 @@ export interface Settings {
 	session: SessionSettings;
 	startup: StartupSettings;
 	updates: UpdateSettings;
+	automation: AutomationSettings;
 }
 
 /* ------------------------------------------------------------------------ */

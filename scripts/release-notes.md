@@ -4,11 +4,13 @@ IDEA Keystage shows your keystrokes, a keyboard and your mouse while you record 
 
 ## Downloads
 
-| File                                         | What it is                                                                                                                                        |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IDEA-Keystage_{{VERSION}}_x64-setup.exe`    | Installer (recommended). Installs for your Windows account only, so it needs no administrator rights. Adds a Start menu entry and an uninstaller. |
-| `IDEA-Keystage_{{VERSION}}_x64-portable.exe` | Portable app. One file, nothing installed. Keep it in a folder you own and run it from there.                                                     |
-| `SHA256SUMS.txt`                             | SHA-256 checksums of both files.                                                                                                                  |
+| File                                          | What it is                                                                                                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IDEA-Keystage_{{VERSION}}_x64-setup.exe`     | Installer (recommended). Installs for your Windows account only, so it needs no administrator rights. Adds a Start menu entry and an uninstaller. |
+| `IDEA-Keystage_{{VERSION}}_x64-portable.exe`  | Portable app. One file, nothing installed. Keep it in a folder you own and run it from there.                                                     |
+| `IDEA-Keystage_{{VERSION}}_connector.mcpb`    | The Claude connector. Double-click it with the Claude desktop app installed, then click Install. See `docs/MCP.md`.                               |
+| `IDEA-Keystage_{{VERSION}}_x64-connector.exe` | The connector program alone, for a hand-written Claude config (fallback in `docs/MCP.md`).                                                        |
+| `SHA256SUMS.txt`                              | SHA-256 checksums of every file.                                                                                                                  |
 
 ## Install
 

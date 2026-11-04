@@ -6,3 +6,4 @@ target/
 data/profiles/
 package-lock.json
 src-tauri/gen/
+mcpb/tools.json

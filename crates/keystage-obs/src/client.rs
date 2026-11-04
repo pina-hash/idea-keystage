@@ -134,11 +134,51 @@ impl Default for ClientOptions {
 }
 
 type Reply = Box<dyn FnOnce(ChapterOutcome) + Send>;
+type RequestReply = Box<dyn FnOnce(Result<Value, RequestError>) + Send>;
+
+/// The obs-websocket requests the connector may send, and nothing else.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObsRequest {
+    StartRecord,
+    StopRecord,
+    GetRecordStatus,
+    GetRecordDirectory,
+}
+
+impl ObsRequest {
+    pub fn name(self) -> &'static str {
+        match self {
+            ObsRequest::StartRecord => "StartRecord",
+            ObsRequest::StopRecord => "StopRecord",
+            ObsRequest::GetRecordStatus => "GetRecordStatus",
+            ObsRequest::GetRecordDirectory => "GetRecordDirectory",
+        }
+    }
+}
+
+/// Why a request got no answer data.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum RequestError {
+    #[error("OBS is not connected")]
+    NotConnected,
+    #[error("OBS did not answer in time")]
+    Timeout,
+    /// obs-websocket's request status code (for example 500, output running).
+    #[error("OBS refused the request (code {code})")]
+    Failed { code: u32 },
+}
 
 enum Command {
     SetConfig(ObsConfig),
     Reconnect,
-    Chapter { name: Option<String>, reply: Reply },
+    Chapter {
+        name: Option<String>,
+        reply: Reply,
+    },
+    Request {
+        kind: ObsRequest,
+        reply: RequestReply,
+    },
     Shutdown,
 }
 
@@ -261,6 +301,35 @@ impl ObsClient {
             Err(std_mpsc::RecvTimeoutError::Timeout) => ChapterOutcome::Timeout,
             Err(std_mpsc::RecvTimeoutError::Disconnected) => ChapterOutcome::NotConnected,
         }
+    }
+
+    /// Sends one of the allowed requests and waits for its `responseData`.
+    pub fn request_blocking(
+        &self,
+        kind: ObsRequest,
+        wait: Duration,
+    ) -> Result<Value, RequestError> {
+        let rx = self.request(kind);
+        match rx.recv_timeout(wait) {
+            Ok(r) => r,
+            Err(std_mpsc::RecvTimeoutError::Timeout) => Err(RequestError::Timeout),
+            Err(std_mpsc::RecvTimeoutError::Disconnected) => Err(RequestError::NotConnected),
+        }
+    }
+
+    /// Sends one of the allowed requests; the answer arrives on the
+    /// returned channel (so a caller can wait without holding a lock).
+    pub fn request(&self, kind: ObsRequest) -> std_mpsc::Receiver<Result<Value, RequestError>> {
+        let (tx, rx) = std_mpsc::sync_channel(1);
+        let reply: RequestReply = Box::new(move |r| {
+            let _ = tx.send(r);
+        });
+        if let Err(mpsc::error::SendError(Command::Request { reply, .. })) =
+            self.cmd.send(Command::Request { kind, reply })
+        {
+            reply(Err(RequestError::NotConnected));
+        }
+        rx
     }
 
     fn send_chapter(&self, name: Option<&str>, reply: Reply) {
@@ -455,6 +524,7 @@ async fn hold(config: &ObsConfig, held: &Connection, ctx: &mut Ctx) -> Wake {
                 }
             }
             Some(Command::Chapter { reply, .. }) => reply(ChapterOutcome::NotConnected),
+            Some(Command::Request { reply, .. }) => reply(Err(RequestError::NotConnected)),
         }
     }
 }
@@ -475,6 +545,7 @@ async fn wait(delay: Duration, config: &ObsConfig, ctx: &mut Ctx) -> Wake {
                     }
                 }
                 Some(Command::Chapter { reply, .. }) => reply(ChapterOutcome::NotConnected),
+                Some(Command::Request { reply, .. }) => reply(Err(RequestError::NotConnected)),
             },
         }
     }
@@ -500,6 +571,7 @@ async fn with_commands<F: Future>(
                     }
                 }
                 Some(Command::Chapter { reply, .. }) => reply(ChapterOutcome::NotConnected),
+                Some(Command::Request { reply, .. }) => reply(Err(RequestError::NotConnected)),
             },
         }
     }
@@ -699,6 +771,7 @@ enum Pending {
     Version,
     Status { sent: Instant },
     Chapter { reply: Reply },
+    Request { reply: RequestReply },
 }
 
 /// State of one identified session.
@@ -734,8 +807,10 @@ impl Live {
 
     fn fail_pending(&mut self) {
         for (_, (_, p)) in self.pending.drain() {
-            if let Pending::Chapter { reply } = p {
-                reply(ChapterOutcome::NotConnected);
+            match p {
+                Pending::Chapter { reply } => reply(ChapterOutcome::NotConnected),
+                Pending::Request { reply } => reply(Err(RequestError::NotConnected)),
+                _ => {}
             }
         }
     }
@@ -752,8 +827,12 @@ async fn send_request(
     let ok = send_text(ws, protocol::request(kind, &id, data)).await;
     if ok {
         live.pending.insert(id, (Instant::now(), p));
-    } else if let Pending::Chapter { reply } = p {
-        reply(ChapterOutcome::NotConnected);
+    } else {
+        match p {
+            Pending::Chapter { reply } => reply(ChapterOutcome::NotConnected),
+            Pending::Request { reply } => reply(Err(RequestError::NotConnected)),
+            _ => {}
+        }
     }
     ok
 }
@@ -850,6 +929,13 @@ async fn session_loop(ws: &mut Ws, live: &mut Live, config: &ObsConfig, ctx: &mu
                         return closed(None).into_end(true);
                     }
                 }
+                Some(Command::Request { kind, reply }) => {
+                    if !live.announced {
+                        reply(Err(RequestError::NotConnected));
+                    } else if !send_request(ws, live, kind.name(), None, Pending::Request { reply }).await {
+                        return closed(None).into_end(true);
+                    }
+                }
             },
             _ = poll.tick() => {
                 let now = Instant::now();
@@ -863,6 +949,7 @@ async fn session_loop(ws: &mut Ws, live: &mut Live, config: &ObsConfig, ctx: &mu
                     if let Some((_, p)) = live.pending.remove(&id) {
                         match p {
                             Pending::Chapter { reply } => reply(ChapterOutcome::Timeout),
+                            Pending::Request { reply } => reply(Err(RequestError::Timeout)),
                             Pending::Status { .. } => live.status_outstanding = false,
                             Pending::Version => {
                                 return End::Retry {
@@ -1003,6 +1090,14 @@ async fn on_message(text: &str, ws: &mut Ws, live: &mut Live, ctx: &Ctx) -> Opti
                         }
                     }
                     live.publish(ctx);
+                    None
+                }
+                Pending::Request { reply } => {
+                    reply(if ok {
+                        Ok(data)
+                    } else {
+                        Err(RequestError::Failed { code })
+                    });
                     None
                 }
                 Pending::Chapter { reply } => {

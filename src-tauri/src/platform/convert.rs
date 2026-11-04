@@ -139,6 +139,22 @@ impl RawEvent {
     }
 }
 
+/// For the connector's abort watch: `None` for input `SendInput` made
+/// (the injected flag), `Some(true)` for a person pressing Escape,
+/// `Some(false)` for any other input a person made.
+pub fn human_input(raw: &RawEvent) -> Option<bool> {
+    match raw.source {
+        RawSource::Keyboard => {
+            if raw.flags & flags::LLKHF_INJECTED != 0 {
+                return None;
+            }
+            let down = matches!(raw.message, msg::WM_KEYDOWN | msg::WM_SYSKEYDOWN);
+            Some(down && raw.vk == 0x1B)
+        }
+        RawSource::Mouse => (raw.flags & flags::LLMHF_INJECTED == 0).then_some(false),
+    }
+}
+
 /// The signed high word of `mouseData` (wheel delta, X button number).
 pub fn high_word(v: u32) -> u16 {
     (v >> 16) as u16
@@ -941,5 +957,34 @@ mod tests {
         assert_eq!(e, copy);
         assert_eq!(high_word(0x0078_0000), 120);
         assert_eq!(high_word(0xFF88_0000) as i16, -120);
+    }
+
+    #[test]
+    fn people_and_send_input_are_told_apart() {
+        let esc = RawEvent::key(msg::WM_KEYDOWN, 0x1B, 0x01, 0, 1);
+        assert_eq!(human_input(&esc), Some(true));
+        let esc_up = RawEvent::key(msg::WM_KEYUP, 0x1B, 0x01, 0, 1);
+        assert_eq!(human_input(&esc_up), Some(false));
+        let a = RawEvent::key(msg::WM_KEYDOWN, 0x41, 0x1E, 0, 1);
+        assert_eq!(human_input(&a), Some(false));
+        let injected = RawEvent::key(msg::WM_KEYDOWN, 0x1B, 0, flags::LLKHF_INJECTED, 1);
+        assert_eq!(
+            human_input(&injected),
+            None,
+            "our own Escape is not a person"
+        );
+        let mv = RawEvent::mouse(msg::WM_MOUSEMOVE, 1, 2, 0, 0, 1);
+        assert_eq!(human_input(&mv), Some(false));
+        let ours = RawEvent::mouse(msg::WM_MOUSEMOVE, 1, 2, 0, flags::LLMHF_INJECTED, 1);
+        assert_eq!(human_input(&ours), None);
+        let lower = RawEvent::mouse(
+            msg::WM_LBUTTONDOWN,
+            1,
+            2,
+            0,
+            flags::LLMHF_INJECTED | flags::LLMHF_LOWER_IL_INJECTED,
+            1,
+        );
+        assert_eq!(human_input(&lower), None);
     }
 }

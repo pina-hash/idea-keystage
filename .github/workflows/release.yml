@@ -77,6 +77,11 @@ jobs:
       - name: Build
         run: npx tauri build --bundles nsis -- --locked
 
+      # The connector (docs/MCP.md): a stdio MCP server that relays to the
+      # running app on 127.0.0.1. Built from the same lockfile.
+      - name: Build the connector
+        run: cargo build --release --locked -p keystage-mcp
+
       - name: Collect the files and their checksums
         run: |
           shopt -s nullglob
@@ -91,11 +96,18 @@ jobs:
             echo "::error::idea-keystage.exe was not built"
             exit 1
           fi
+          mcp=target/release/idea-keystage-mcp.exe
+          if [ ! -f "$mcp" ]; then
+            echo "::error::idea-keystage-mcp.exe was not built"
+            exit 1
+          fi
           mkdir -p release
           cp "${installers[0]}" "release/IDEA-Keystage_${VERSION}_x64-setup.exe"
           cp "$exe" "release/IDEA-Keystage_${VERSION}_x64-portable.exe"
+          cp "$mcp" "release/IDEA-Keystage_${VERSION}_x64-connector.exe"
+          node scripts/pack-mcpb.mjs --exe "$mcp" --version "$VERSION" --out "release/IDEA-Keystage_${VERSION}_connector.mcpb"
           cd release
-          sha256sum -b IDEA-Keystage_*.exe | sed 's/ \*/  /' > SHA256SUMS.txt
+          sha256sum -b IDEA-Keystage_*.exe IDEA-Keystage_*.mcpb | sed 's/ \*/  /' > SHA256SUMS.txt
           cat SHA256SUMS.txt
           ls -l
 
@@ -116,7 +128,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           REPO: ${{ github.repository }}
         run: |
-          files=(release/IDEA-Keystage_*.exe release/SHA256SUMS.txt)
+          files=(release/IDEA-Keystage_*.exe release/IDEA-Keystage_*.mcpb release/SHA256SUMS.txt)
           notes="$RUNNER_TEMP/release-notes.md"
           prerelease=()
           case "$VERSION" in *-*) prerelease=(--prerelease) ;; esac

@@ -15,14 +15,20 @@
 //!   connecting or lagging client a fresh `hello`, and counts clients by
 //!   route and host.
 //!
+//! * `GET /api/control/tools` and `POST /api/control/call` are the
+//!   connector's control API (`control.rs`): only with a token the app
+//!   hands over, no browser headers, and `Authorization: Bearer`.
+//!
 //! Logging is lifecycle only: no message content, no key names.
 
 pub mod assets;
+pub mod control;
 pub mod hub;
 pub mod server;
 mod ws;
 
 pub use assets::{Asset, Assets, DirAssets, MemoryAssets};
+pub use control::Control;
 pub use hub::{ClientCounts, ClientInfo, Hub, DEFAULT_CAPACITY};
 pub use server::{
     overlay_url, Server, ServerConfig, ServerError, ServerHandle, DEFAULT_MAX_CLIENTS,

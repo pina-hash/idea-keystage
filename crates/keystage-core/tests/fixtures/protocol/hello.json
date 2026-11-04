@@ -2,7 +2,7 @@
 	"t": "hello",
 	"v": 1,
 	"app": "IDEA Keystage",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"config": {
 		"theme": "idea",
 		"custom": null,
@@ -72,7 +72,8 @@
 			"active": true,
 			"started_ms": 1000,
 			"markers": 2
-		}
+		},
+		"automated": false
 	},
 	"legends": {
 		"layout": "00000409",

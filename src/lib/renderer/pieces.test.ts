@@ -82,6 +82,13 @@ describe('visible pieces', () => {
 		expect(indicatorsFor(config, { ...state, suppressed: 'excluded' })[0]?.detail).toBe(
 			'Excluded app'
 		);
+		// Automated: Host A and the preview only, never an OBS source.
+		const auto = { ...state, automated: true };
+		expect(indicatorsFor(config, auto, 'native')).toEqual([{ kind: 'automated', detail: null }]);
+		expect(indicatorsFor(config, auto, 'preview')).toHaveLength(1);
+		expect(indicatorsFor(config, auto, 'obs')).toEqual([]);
+		expect(indicatorsFor(config, auto, 'browser')).toEqual([]);
+		expect(indicatorsFor(config, auto)).toEqual([]);
 		const quiet = { ...config, indicators: { paused: false, suppressed: false } };
 		expect(indicatorsFor(quiet, { ...state, paused: true, suppressed: 'password' })).toEqual([]);
 	});

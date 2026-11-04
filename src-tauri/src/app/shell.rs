@@ -32,6 +32,7 @@ use parking_lot::{Mutex, RwLock};
 use tauri::{Emitter, EventTarget, Manager, Wry};
 
 use super::actions::Action;
+use super::control::{self, ControlService};
 use super::hotkeys::HotkeyManager;
 use super::obs_bridge::{self, BridgeChange, ObsBridge, RecordTracker, SessionStep};
 use super::overlay_window::{self, OverlayManager};
@@ -98,6 +99,8 @@ pub struct Paths {
     pub default_sessions: PathBuf,
     /// Downloaded updates (`%LOCALAPPDATA%\com.ideabosco.keystage\updates`).
     pub updates: PathBuf,
+    /// `%LOCALAPPDATA%\com.ideabosco.keystage`: `control.json` for the connector.
+    pub local_data: PathBuf,
 }
 
 impl Paths {
@@ -112,15 +115,16 @@ impl Paths {
             .map(|d| d.join("IDEA Keystage").join("Sessions"))
             .or_else(|_| p.app_data_dir().map(|d| d.join("Sessions")))
             .unwrap_or_else(|_| config_dir.join("Sessions"));
-        let updates = p
+        let local_data = p
             .app_local_data_dir()
-            .map(|d| d.join("updates"))
-            .unwrap_or_else(|_| config_dir.join("updates"));
+            .unwrap_or_else(|_| config_dir.clone());
+        let updates = local_data.join("updates");
         Ok(Paths {
             config_dir,
             log_dir,
             default_sessions,
             updates,
+            local_data,
         })
     }
 
@@ -179,6 +183,8 @@ pub struct Shell {
     watcher: OnceLock<WatcherHandle>,
     tray: OnceLock<Tray<Wry>>,
     updates: OnceLock<UpdateService>,
+    control: OnceLock<Arc<ControlService>>,
+    automated: AtomicBool,
     actions: Sender<Action>,
     refresh: Sender<()>,
     preview_visible: AtomicBool,
@@ -194,6 +200,19 @@ pub struct Shell {
 impl std::fmt::Debug for Shell {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Shell").finish_non_exhaustive()
+    }
+}
+
+/// While it lives, `AppState.automated` is true.
+pub struct AutomatedGuard<'a> {
+    shell: &'a Shell,
+}
+
+impl Drop for AutomatedGuard<'_> {
+    fn drop(&mut self) {
+        self.shell.automated.store(false, Ordering::Release);
+        self.shell.publish_state();
+        self.shell.refresh_soon();
     }
 }
 
@@ -336,6 +355,8 @@ pub fn setup(app: &mut tauri::App<Wry>, autostarted: bool) -> Result<(), String>
         watcher: OnceLock::new(),
         tray: OnceLock::new(),
         updates: OnceLock::new(),
+        control: OnceLock::new(),
+        automated: AtomicBool::new(false),
         actions: actions_tx,
         refresh: refresh_tx,
         preview_visible: AtomicBool::new(false),
@@ -373,7 +394,12 @@ impl Shell {
                 Some(s) => s.hello().to_json(),
                 None => ServerMsg::hello(Default::default(), Default::default(), None).to_json(),
             });
+        // The connector's control API rides on the same server.
+        let control = Arc::new(ControlService::new(self.me.clone()));
+        let _ = self.control.set(control.clone());
+        self.server.set_control(control);
         self.server.ensure(settings.server.port);
+        self.write_control_file();
 
         // Input, watcher and the pipeline.
         let core = Core::new(
@@ -568,6 +594,7 @@ impl Shell {
         }
         if old.server.port != new.server.port {
             self.server.ensure(new.server.port);
+            self.write_control_file();
         }
         if old.hotkeys != new.hotkeys && !self.hotkeys.capturing() {
             self.hotkeys.apply(&self.app, &new.hotkeys);
@@ -664,6 +691,7 @@ impl Shell {
             sources: counts.sources(),
             recording,
             session,
+            automated: self.automated.load(Ordering::Acquire),
         })
     }
 
@@ -762,6 +790,106 @@ impl Shell {
         }
     }
 
+    /// Writes `control.json` (the connector's port and token).
+    fn write_control_file(&self) {
+        let Some(c) = self.control.get() else { return };
+        match control::write_control_file(&self.paths.local_data, self.server.port()) {
+            Ok(t) => c.set_token(t),
+            Err(_) => tracing::warn!("connector key file not written"),
+        }
+    }
+
+    /// The pause switch and the privacy reason in force.
+    pub fn privacy_now(&self) -> (bool, Option<state::Reason>) {
+        let l = self.live.lock();
+        (l.paused, l.view.privacy)
+    }
+
+    pub fn hooks_installed(&self) -> bool {
+        self.input.get().is_some_and(|h| h.is_installed())
+    }
+
+    /// Marks an automated run: Host A shows "Automated" until the guard drops.
+    pub fn automated_guard(&self) -> AutomatedGuard<'_> {
+        self.automated.store(true, Ordering::Release);
+        self.publish_state();
+        self.refresh_soon();
+        AutomatedGuard { shell: self }
+    }
+
+    /// A chapter marker with a tutorial step id (and in OBS, best effort).
+    pub fn add_marker_step(&self, name: Option<&str>, step: Option<&str>) -> Result<(), String> {
+        if step.is_none() {
+            return self.add_marker(name);
+        }
+        let settings = self.settings();
+        let logged = self
+            .sessions
+            .lock()
+            .add_marker_step(platform::now_ms(), name, step);
+        if settings.obs.enabled {
+            self.obs.add_chapter(name);
+        }
+        self.publish_state();
+        self.refresh_soon();
+        logged.map(|_| ())
+    }
+
+    /// Starts recording through the OBS link (never with a hotkey), and
+    /// waits up to 5 s for OBS to say it records.
+    pub fn obs_start_recording(&self) -> Result<(), String> {
+        if !self.settings().obs.enabled {
+            return Err(control::OBS_OFF.into());
+        }
+        self.obs
+            .request(keystage_obs::ObsRequest::StartRecord)
+            .map_err(|e| format!("OBS did not start recording: {e}."))?;
+        let until = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < until {
+            if self.obs.recording().is_some_and(|r| r.active) {
+                return Ok(());
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+        Ok(())
+    }
+
+    /// Stops recording through the OBS link: the file path and the length.
+    pub fn obs_stop_recording(&self) -> Result<serde_json::Value, String> {
+        if !self.settings().obs.enabled {
+            return Err(control::OBS_OFF.into());
+        }
+        let before = self
+            .obs
+            .request(keystage_obs::ObsRequest::GetRecordStatus)
+            .ok();
+        let out = self
+            .obs
+            .request(keystage_obs::ObsRequest::StopRecord)
+            .map_err(|e| format!("OBS did not stop recording: {e}."))?;
+        Ok(serde_json::json!({
+            "output_path": out["outputPath"],
+            "duration_ms": before.as_ref().map(|b| b["outputDuration"].clone()),
+            "timecode": before.as_ref().map(|b| b["outputTimecode"].clone()),
+        }))
+    }
+
+    /// Session milliseconds to video milliseconds, for the running session
+    /// while OBS recorded it.
+    pub fn video_clock(&self) -> impl Fn(u64) -> Option<u64> {
+        let s = self.sessions.lock().running();
+        let clock =
+            s.map(|s| keystage_session::RecordingClock::new(&s.recording, s.start_ms, s.end_ms));
+        move |t| {
+            let c = clock.as_ref()?;
+            if !c.uses_obs() {
+                return None;
+            }
+            let m = c.map(t);
+            m.in_video().then_some(m.rec_ms)
+        }
+    }
+
     /// Where the automatic update stands.
     pub fn update_status(&self) -> keystage_core::ipc::UpdateStatus {
         self.updates
@@ -805,6 +933,7 @@ impl Shell {
             session_active,
             marker_enabled: session_active || (settings.obs.enabled && obs_recording),
             update_line: self.update_status().message,
+            allow_input: settings.automation.allow_input,
         }
     }
 
@@ -1209,6 +1338,11 @@ impl Shell {
             Action::CheckUpdates => {
                 self.check_for_updates();
                 Ok(())
+            }
+            Action::ToggleAllowInput => {
+                let on = self.settings().automation.allow_input;
+                self.update_settings(|s| s.automation.allow_input = !on)
+                    .map(|_| ())
             }
             Action::OpenSettings => {
                 self.open_settings();

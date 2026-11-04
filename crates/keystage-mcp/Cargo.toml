@@ -1,0 +1,20 @@
+[package]
+name = "keystage-mcp"
+description = "IDEA Keystage connector: a stdio MCP server that relays Claude's tool calls to the running app's control API on 127.0.0.1."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "idea-keystage-mcp"
+path = "src/main.rs"
+
+[dependencies]
+keystage-automation.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

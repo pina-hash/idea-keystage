@@ -314,6 +314,27 @@ impl Default for UpdateSettings {
     }
 }
 
+/// The IDEA Keystage connector (ARCHITECTURE.md section 14).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutomationSettings {
+    /// "Allow the IDEA Keystage connector": the control API on 127.0.0.1
+    /// answers (with its token). Off, its routes do not exist.
+    pub connector: bool,
+    /// "Allow Claude to move the mouse and type": the input tools and
+    /// `perform` may send input. Off by default.
+    pub allow_input: bool,
+}
+
+impl Default for AutomationSettings {
+    fn default() -> Self {
+        AutomationSettings {
+            connector: true,
+            allow_input: false,
+        }
+    }
+}
+
 /// Everything the app stores.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -334,6 +355,7 @@ pub struct Settings {
     pub session: SessionSettings,
     pub startup: StartupSettings,
     pub updates: UpdateSettings,
+    pub automation: AutomationSettings,
 }
 
 impl Default for Settings {
@@ -353,6 +375,7 @@ impl Default for Settings {
             session: SessionSettings::default(),
             startup: StartupSettings::default(),
             updates: UpdateSettings::default(),
+            automation: AutomationSettings::default(),
         }
     }
 }
@@ -464,6 +487,7 @@ impl Settings {
         section!("session", session);
         section!("startup", startup);
         section!("updates", updates);
+        section!("automation", automation);
         issues.extend(st.validate());
         (st, issues)
     }
@@ -1178,6 +1202,13 @@ mod update_tests {
     #[test]
     fn automatic_updates_default_to_on_and_survive_a_round_trip() {
         assert!(Settings::default().updates.auto);
+        assert!(Settings::default().automation.connector);
+        assert!(
+            !Settings::default().automation.allow_input,
+            "input is off until the user allows it"
+        );
+        let (s, _) = Settings::from_json(r#"{"automation":{"allow_input":true}}"#);
+        assert!(s.automation.allow_input && s.automation.connector);
         assert!(!Settings::default().session.tutorial_capture);
         let (s, _) = Settings::from_json(r#"{"session":{"autosave":false}}"#);
         assert!(!s.session.tutorial_capture);

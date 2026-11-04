@@ -1,0 +1,35 @@
+{
+	"manifest_version": "0.3",
+	"name": "idea-keystage",
+	"display_name": "IDEA Keystage",
+	"version": "{{VERSION}}",
+	"description": "Record tutorials on this Windows computer with IDEA Keystage: session logs, OBS recording, the overlay, and human-like mouse and keyboard control.",
+	"long_description": "Connects Claude to IDEA Keystage running on this computer. Claude can read its state, start and stop Session Logs with chapter markers and step ids, start and stop OBS recordings through the OBS link, show or hide the overlay, check that no other window covers the screen being recorded, and read finished recordings. When you turn on \"Allow Claude to move the mouse and type\" in IDEA Keystage, Claude can also move the real cursor, click, drag, scroll and type like a person, and run a whole take in one call. Touching the mouse or keyboard stops it at once, and it never types into a password field. Everything stays on this computer: the connector talks only to IDEA Keystage on 127.0.0.1.",
+	"author": {
+		"name": "IDEA Engineering Pathway",
+		"url": "https://github.com/pina-hash/idea-keystage"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/pina-hash/idea-keystage"
+	},
+	"homepage": "https://github.com/pina-hash/idea-keystage",
+	"documentation": "https://github.com/pina-hash/idea-keystage/blob/main/docs/MCP.md",
+	"support": "https://github.com/pina-hash/idea-keystage/issues",
+	"icon": "icon.png",
+	"server": {
+		"type": "binary",
+		"entry_point": "server/idea-keystage-mcp.exe",
+		"mcp_config": {
+			"command": "${__dirname}/server/idea-keystage-mcp.exe",
+			"args": [],
+			"env": {}
+		}
+	},
+	"tools": [],
+	"tools_generated": true,
+	"keywords": ["tutorial", "screen recording", "OBS", "SolidWorks", "keystrokes", "automation"],
+	"compatibility": {
+		"platforms": ["win32"]
+	}
+}

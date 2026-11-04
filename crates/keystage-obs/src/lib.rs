@@ -24,8 +24,8 @@ pub mod status;
 
 pub use auth::{auth_string, Password};
 pub use client::{
-    test_connection, test_connection_blocking, ClientOptions, ObsClient, ObsConfig, DEFAULT_HOST,
-    DEFAULT_PORT,
+    test_connection, test_connection_blocking, ClientOptions, ObsClient, ObsConfig, ObsRequest,
+    RequestError, DEFAULT_HOST, DEFAULT_PORT,
 };
 pub use status::{
     ChapterOutcome, ChapterSupport, Connection, DurationSample, ObsEvent, ObsStatus, RecordState,

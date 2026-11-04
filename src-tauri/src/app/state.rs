@@ -117,6 +117,8 @@ pub struct StateInputs<'a> {
     pub sources: u32,
     pub recording: Option<RecordingState>,
     pub session: Option<SessionState>,
+    /// The connector is sending input.
+    pub automated: bool,
 }
 
 /// The wire `AppState` (section 5).
@@ -131,6 +133,7 @@ pub fn app_state(i: &StateInputs<'_>) -> AppState {
         obs_clients: i.sources,
         recording: i.recording.clone(),
         session: i.session.clone(),
+        automated: i.automated,
     }
 }
 
@@ -323,7 +326,9 @@ mod tests {
                 started_ms: 5,
                 markers: 2,
             }),
+            automated: true,
         });
+        assert!(st.automated);
         assert!(!st.paused);
         assert_eq!(st.suppressed, Some(Suppressed::Excluded));
         assert_eq!(st.profile, Some(profile("SolidWorks")));
@@ -340,6 +345,7 @@ mod tests {
             sources: 0,
             recording: None,
             session: None,
+            automated: false,
         }))
         .expect("serializes");
         assert_eq!(json["suppressed"], serde_json::Value::Null);

@@ -19,7 +19,7 @@ use crate::clock::{ClockEvent, ClockSample, RecordEvent, RecordingLog};
 use crate::time;
 
 /// The schema id written into every session file.
-pub const SESSION_SCHEMA: &str = "keystage.session/1.1";
+pub const SESSION_SCHEMA: &str = "keystage.session/1.2";
 /// The schema family this version reads (`keystage.session/<major>`).
 const SCHEMA_PREFIX: &str = "keystage.session/";
 const SCHEMA_MAJOR: &str = "1";
@@ -90,6 +90,10 @@ pub struct Marker {
     /// Monotonic time the marker was added (same clock as callouts).
     pub t_ms: u64,
     pub name: String,
+    /// 1.2: a tutorial step id the marker belongs to (the connector's
+    /// `session_marker` and `perform` markers), 1 to 64 characters.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
 }
 
 /// A stored session, `keystage.session/1`.
@@ -195,6 +199,17 @@ impl Session {
     /// Adds a marker at `t_ms`, kept in time order. An empty or missing name
     /// becomes `Chapter <n>`. Returns the marker's index.
     pub fn add_marker(&mut self, t_ms: u64, name: Option<&str>) -> Result<usize, SessionError> {
+        self.add_marker_step(t_ms, name, None)
+    }
+
+    /// [`Session::add_marker`] with a tutorial step id (cleaned like a
+    /// name, cut to 64 characters, dropped when empty).
+    pub fn add_marker_step(
+        &mut self,
+        t_ms: u64,
+        name: Option<&str>,
+        step: Option<&str>,
+    ) -> Result<usize, SessionError> {
         if self.markers.len() >= MAX_MARKERS {
             return Err(SessionError::TooManyMarkers);
         }
@@ -203,7 +218,18 @@ impl Session {
             clean = format!("Chapter {}", self.markers.len() + 1);
         }
         let index = self.markers.partition_point(|m| m.t_ms <= t_ms);
-        self.markers.insert(index, Marker { t_ms, name: clean });
+        let step = step
+            .map(clean_name)
+            .map(|s| s.chars().take(64).collect::<String>())
+            .filter(|s| !s.is_empty());
+        self.markers.insert(
+            index,
+            Marker {
+                t_ms,
+                name: clean,
+                step,
+            },
+        );
         Ok(index)
     }
 
@@ -243,7 +269,7 @@ impl Session {
     /// Pretty JSON with a trailing newline (the file and the JSON export).
     pub fn to_json_pretty(&self) -> String {
         let mut s = serde_json::to_string_pretty(self)
-            .unwrap_or_else(|_| String::from("{\"schema\":\"keystage.session/1.1\"}"));
+            .unwrap_or_else(|_| String::from("{\"schema\":\"keystage.session/1.2\"}"));
         s.push('\n');
         s
     }
@@ -426,6 +452,19 @@ impl SessionLog {
             return Err(SessionError::Stopped);
         }
         self.session.add_marker(t_ms, name)
+    }
+
+    /// A marker with a tutorial step id.
+    pub fn add_marker_step(
+        &mut self,
+        t_ms: u64,
+        name: Option<&str>,
+        step: Option<&str>,
+    ) -> Result<usize, SessionError> {
+        if !self.is_active() {
+            return Err(SessionError::Stopped);
+        }
+        self.session.add_marker_step(t_ms, name, step)
     }
 
     /// Renames a marker (allowed after the session stopped, too).
@@ -830,7 +869,7 @@ mod tests {
         assert_eq!(log.add_pointer(&[entry(1_100)]), 0, "off by default");
         let json = log.session().to_json_pretty();
         assert!(!json.contains("\"pointer\""), "{json}");
-        assert!(json.contains("\"schema\": \"keystage.session/1.1\""));
+        assert!(json.contains("\"schema\": \"keystage.session/1.2\""));
         log.capture_pointer();
         assert!(log.captures_pointer());
         assert!(log.session().to_json_pretty().contains("\"pointer\": []"));
@@ -871,5 +910,33 @@ mod tests {
         .expect("1.0");
         assert_eq!(s.pointer, None);
         assert_eq!(s.callouts[0].x, None);
+    }
+
+    #[test]
+    fn markers_keep_their_step_id() {
+        let mut log = SessionLog::start("s", 0, 0);
+        log.add_marker_step(10, Some("Sketch"), Some("  step 1 "))
+            .expect("m");
+        log.add_marker_step(20, Some("Extrude"), Some(" "))
+            .expect("m");
+        log.add_marker(30, None).expect("m");
+        let m = &log.session().markers;
+        assert_eq!(m[0].step.as_deref(), Some("step 1"));
+        assert_eq!(m[1].step, None, "blank is no step");
+        let json = log.session().to_json_pretty();
+        assert_eq!(json.matches("\"step\"").count(), 1);
+        log.rename_marker(0, "Sketch the base").expect("rename");
+        assert_eq!(
+            log.session().markers[0].step.as_deref(),
+            Some("step 1"),
+            "a rename keeps it"
+        );
+        let long = "x".repeat(100);
+        log.add_marker_step(40, Some("Long"), Some(&long))
+            .expect("m");
+        assert_eq!(
+            log.session().markers[3].step.as_ref().map(|s| s.len()),
+            Some(64)
+        );
     }
 }

@@ -57,6 +57,8 @@ describe('version numbers', () => {
 			'crates/keystage-server/Cargo.toml',
 			'crates/keystage-obs/Cargo.toml',
 			'crates/keystage-update/Cargo.toml',
+			'crates/keystage-automation/Cargo.toml',
+			'crates/keystage-mcp/Cargo.toml',
 			'src-tauri/Cargo.toml',
 		]) {
 			expect(read(manifest), manifest).toMatch(/^version\.workspace\s*=\s*true$/m);

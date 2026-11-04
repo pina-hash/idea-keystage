@@ -149,6 +149,7 @@ export function defaultSettings(): Settings {
 		session: { folder: null, autosave: true, tutorial_capture: false },
 		startup: { start_with_windows: false, show_settings: true },
 		updates: { auto: true },
+		automation: { connector: true, allow_input: false },
 	};
 }
 
@@ -310,6 +311,7 @@ export function normalizeSettings(v: unknown): Settings {
 	const session = rec(r.session);
 	const startup = rec(r.startup);
 	const updates = rec(r.updates);
+	const automation = rec(r.automation);
 	const shortcuts = Array.isArray(profiles.solidworks_user_shortcuts)
 		? profiles.solidworks_user_shortcuts
 				.map(normalizeUserShortcut)
@@ -362,6 +364,10 @@ export function normalizeSettings(v: unknown): Settings {
 			show_settings: bool(startup.show_settings, true),
 		},
 		updates: { auto: bool(updates.auto, d.updates.auto) },
+		automation: {
+			connector: bool(automation.connector, d.automation.connector),
+			allow_input: bool(automation.allow_input, d.automation.allow_input),
+		},
 	};
 }
 

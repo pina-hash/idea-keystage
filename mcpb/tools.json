@@ -1,0 +1,110 @@
+[
+  {
+    "description": "IDEA Keystage's state: version, paused or active, input hooks, profile, monitors (device name, rectangle in physical pixels, DPI scale), OBS link and recording, the Session Log, updates, and whether automation is allowed.",
+    "name": "status"
+  },
+  {
+    "description": "Starts a Session Log (the record of shortcuts, clicks and chapter markers a tutorial builder reads). capture: true also logs every click, drag, wheel step and the cursor path (tutorial capture) for this session.",
+    "name": "session_start"
+  },
+  {
+    "description": "Stops the running Session Log, saves it and returns the whole session JSON (keystage.session/1.x).",
+    "name": "session_stop"
+  },
+  {
+    "description": "Adds a chapter marker to the running Session Log (and to the OBS recording when it can take chapters). step is an optional tutorial step id kept with the marker.",
+    "name": "session_marker"
+  },
+  {
+    "description": "The saved and in-memory Session Logs, newest first.",
+    "name": "session_list"
+  },
+  {
+    "description": "One Session Log's JSON by id.",
+    "name": "session_get"
+  },
+  {
+    "description": "The OBS link: whether Connect to OBS is on, the connection state, recording state and timecode, and the recording folder. If the link is off it says exactly what to turn on.",
+    "name": "obs_status"
+  },
+  {
+    "description": "Starts recording in OBS through the OBS link (never with hotkeys).",
+    "name": "obs_start_recording"
+  },
+  {
+    "description": "Stops recording in OBS through the OBS link; returns the output file path and the recording length.",
+    "name": "obs_stop_recording"
+  },
+  {
+    "description": "Shows or hides IDEA Keystage's on-screen overlay (Host A), so a recording can be made with or without it.",
+    "name": "overlay_set"
+  },
+  {
+    "description": "Which pieces the overlay draws: all, only keys (callouts), only the keyboard, only the mouse diagram, only cursor effects, or auto (back to the user's settings).",
+    "name": "show_set"
+  },
+  {
+    "description": "Which profile captions come from: solidworks (on), general (SolidWorks off), auto (follow the app in front), or a user profile id.",
+    "name": "profile_set"
+  },
+  {
+    "description": "Pauses IDEA Keystage (removes the input hooks; nothing is shown or logged).",
+    "name": "pause"
+  },
+  {
+    "description": "Resumes IDEA Keystage.",
+    "name": "resume"
+  },
+  {
+    "description": "Size and SHA-256 of a file in the OBS recording folder or the Session Log folder.",
+    "name": "recording_info"
+  },
+  {
+    "description": "Reads up to 4 MiB of a file in the OBS recording folder or the Session Log folder, as base64. Read a whole recording chunk by chunk and check it against recording_info.",
+    "name": "recording_read_chunk"
+  },
+  {
+    "description": "Checks GitHub for a new IDEA Keystage version now; it installs itself when nothing records.",
+    "name": "check_for_updates_now"
+  },
+  {
+    "description": "The app in front: process name, window rectangle in physical pixels, and the monitor it is on. Never the window title.",
+    "name": "foreground_window"
+  },
+  {
+    "description": "Windows in front of the app being recorded that cover the capture monitor: process name, z-order, rectangle, topmost. Never titles. A clean take needs this to be empty.",
+    "name": "occluders"
+  },
+  {
+    "description": "Moves the real cursor like a person: a slightly curved path, minimum-jerk speed, Fitts's law timing unless duration_ms is given, a small overshoot on long moves. Needs \"Allow Claude to move the mouse and type\".",
+    "name": "pointer_move"
+  },
+  {
+    "description": "Clicks like a person: moves there first when x and y are given, settles 120 ms, holds 60 to 110 ms. wait_idle first waits for the screen there to stop changing.",
+    "name": "pointer_click"
+  },
+  {
+    "description": "Presses a button, follows the path smoothly (Catmull-Rom through the points, minimum-jerk overall) and releases. The cursor first moves to the first point.",
+    "name": "pointer_drag"
+  },
+  {
+    "description": "Scrolls the wheel at a point, one notch at a time with a human rhythm.",
+    "name": "pointer_scroll"
+  },
+  {
+    "description": "Presses a shortcut like ctrl+1, ctrl+shift+s, f5, enter or up with realistic timing.",
+    "name": "key_chord"
+  },
+  {
+    "description": "Types text with a human cadence (60 to 140 ms a character); line breaks are Enter, tabs are Tab. Refused in a password field.",
+    "name": "type_text"
+  },
+  {
+    "description": "Waits until a small screen rectangle stops changing for 150 ms (a dialog finished opening), at most max_ms. Returns how long it took.",
+    "name": "wait_idle"
+  },
+  {
+    "description": "Runs a whole take in one call with exact timing: actions move, click, drag, scroll, chord, type, wait, wait_idle, marker (name, step), obs_start, obs_stop. Refuses to start while another window covers the capture monitor (require_clean, default true), checks again at each marker and reports dirty spans. Any mouse or key use by a person stops it at once. Returns each action's start and end on the session clock and, with OBS recording, the video clock.",
+    "name": "perform"
+  }
+]

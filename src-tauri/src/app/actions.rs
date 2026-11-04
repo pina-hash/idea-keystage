@@ -18,6 +18,8 @@ pub enum Action {
     AddMarker,
     /// Check for updates now.
     CheckUpdates,
+    /// "Allow Claude to move the mouse and type" on or off.
+    ToggleAllowInput,
     OpenSettings,
     Quit,
 }

@@ -231,6 +231,16 @@ async fn serve_one(
                             let code = s.chapter_code;
                             (json!({"result":code == 100,"code":code}), Value::Null)
                         }
+                        "StartRecord" if !s.record.0 => (json!({"result":true,"code":100}), Value::Null),
+                        "StartRecord" => (json!({"result":false,"code":500}), Value::Null),
+                        "StopRecord" => (
+                            json!({"result":true,"code":100}),
+                            json!({"outputPath":"C:\\Users\\x\\Videos\\take.mp4"}),
+                        ),
+                        "GetRecordDirectory" => (
+                            json!({"result":true,"code":100}),
+                            json!({"recordDirectory":"C:\\Users\\x\\Videos"}),
+                        ),
                         _ => (json!({"result":false,"code":204}), Value::Null),
                     }
                 };
@@ -865,4 +875,34 @@ fn blocking_connection_test_runs_its_own_runtime() {
         Duration::from_secs(2),
     );
     assert!(!r.ok && r.error.is_some());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_connector_requests_answer_with_obs_data() {
+    use keystage_obs::{ObsRequest, RequestError};
+    let mock = Mock::start(None).await;
+    let client = ObsClient::spawn_with(mock.config(None), fast()).unwrap();
+    wait_status(&client, "connected", connected).await;
+    let c = std::sync::Arc::new(client);
+    let wait = Duration::from_secs(3);
+    let run = |k: ObsRequest| {
+        let c = c.clone();
+        tokio::task::spawn_blocking(move || c.request_blocking(k, wait))
+    };
+    let dir = run(ObsRequest::GetRecordDirectory).await.unwrap().unwrap();
+    assert_eq!(dir["recordDirectory"], "C:\\Users\\x\\Videos");
+    assert!(run(ObsRequest::StartRecord).await.unwrap().is_ok());
+    let stop = run(ObsRequest::StopRecord).await.unwrap().unwrap();
+    assert_eq!(stop["outputPath"], "C:\\Users\\x\\Videos\\take.mp4");
+    mock.state.lock().unwrap().record = (true, false, 1_000);
+    assert_eq!(
+        run(ObsRequest::StartRecord).await.unwrap(),
+        Err(RequestError::Failed { code: 500 }),
+        "already recording"
+    );
+    assert_eq!(mock.requests_of("StartRecord").len(), 2);
+    let Ok(c) = std::sync::Arc::try_unwrap(c) else {
+        panic!("one owner")
+    };
+    c.shutdown();
 }

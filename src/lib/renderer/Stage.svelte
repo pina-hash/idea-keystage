@@ -51,7 +51,7 @@
 	const pieces = $derived(
 		live ? visiblePieces(store.route, config, store.appState, host) : { ...NO_PIECES }
 	);
-	const indicators = $derived(pieces.indicators ? indicatorsFor(config, store.appState) : []);
+	const indicators = $derived(pieces.indicators ? indicatorsFor(config, store.appState, host) : []);
 	const unit = $derived(CALLOUT_UNIT_PX[config.callouts.size] * scale);
 	const kbUnit = $derived(KEYBOARD_UNIT_PX[config.keyboard.size] * scale);
 	const stageStyle = $derived(

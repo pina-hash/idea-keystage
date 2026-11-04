@@ -15,6 +15,7 @@
 //!
 //! The functions at this level are what `platform/mod.rs` dispatches to.
 
+pub mod automation;
 pub mod dpapi;
 pub mod hooks;
 pub mod layout;
@@ -132,6 +133,18 @@ pub fn dpapi_unprotect(blob_b64: &str) -> Result<String, PlatformError> {
 
 pub fn os_build() -> Option<u32> {
     os::build()
+}
+
+/// 32 bytes from the system-preferred random number generator.
+pub fn random_bytes() -> Option<[u8; 32]> {
+    use windows::Win32::Security::Cryptography::{
+        BCryptGenRandom, BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+    };
+    let mut b = [0u8; 32];
+    // SAFETY: `b` is a valid 32-byte buffer; no algorithm handle with the
+    // system-preferred flag.
+    let status = unsafe { BCryptGenRandom(None, &mut b, BCRYPT_USE_SYSTEM_PREFERRED_RNG) };
+    (status.0 >= 0).then_some(b)
 }
 
 /// Starts `exe` with `parameters` through `ShellExecuteW` ("open", shown

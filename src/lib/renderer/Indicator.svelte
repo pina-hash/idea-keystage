@@ -16,18 +16,23 @@
 	class="ks-indicator"
 	class:is-paused={view.kind === 'paused'}
 	class:is-hidden={view.kind === 'hidden'}
+	class:is-automated={view.kind === 'automated'}
 >
 	<span class="ks-indicator-lamp" aria-hidden="true"></span>
 	<svg class="ks-indicator-glyph" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
 		{#if view.kind === 'paused'}
 			<path d="M9 6v12M15 6v12" />
+		{:else if view.kind === 'automated'}
+			<path d="M5 4l12 7-5 1.5L9.5 18z M13 14l4 5" />
 		{:else}
 			<path
 				d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6zM12 9.2a2.8 2.8 0 1 0 0 5.6 2.8 2.8 0 0 0 0-5.6zM4 20 20 4"
 			/>
 		{/if}
 	</svg>
-	<span class="ks-indicator-word">{view.kind === 'paused' ? 'Paused' : 'Hidden'}</span>
+	<span class="ks-indicator-word"
+		>{view.kind === 'paused' ? 'Paused' : view.kind === 'automated' ? 'Automated' : 'Hidden'}</span
+	>
 	{#if view.detail}
 		<span class="ks-indicator-detail">{view.detail}</span>
 	{/if}

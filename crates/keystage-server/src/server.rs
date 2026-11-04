@@ -13,7 +13,7 @@ use axum::extract::ws::{rejection::WebSocketUpgradeRejection, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{any, get};
 use axum::serve::ListenerExt;
 use axum::Router;
 use keystage_core::protocol::{Route, APP_NAME, APP_VERSION, DEFAULT_PORT, PROTOCOL_VERSION};
@@ -21,6 +21,7 @@ use serde::Serialize;
 use tokio::sync::watch;
 
 use crate::assets::{self, Assets};
+use crate::control::{self, Control};
 use crate::hub::Hub;
 use crate::ws;
 
@@ -113,6 +114,16 @@ impl Server {
         assets: Arc<dyn Assets>,
         hub: Hub,
     ) -> Result<ServerHandle, ServerError> {
+        Server::start_with_control(config, assets, hub, None)
+    }
+
+    /// [`Server::start`] plus the connector's control API (`control.rs`).
+    pub fn start_with_control(
+        config: ServerConfig,
+        assets: Arc<dyn Assets>,
+        hub: Hub,
+        control: Option<Arc<dyn Control>>,
+    ) -> Result<ServerHandle, ServerError> {
         let requested = SocketAddr::from((Ipv4Addr::LOCALHOST, config.port));
         let listener =
             StdListener::bind(requested).map_err(|e| ServerError::from_bind(config.port, e))?;
@@ -135,6 +146,7 @@ impl Server {
             stop: stop_rx.clone(),
             max_clients: config.max_clients.max(1),
             sockets: OpenSockets::new(),
+            control,
         };
         let thread = thread::Builder::new()
             .name("keystage-server".into())
@@ -249,6 +261,7 @@ pub(crate) struct AppState {
     pub(crate) stop: watch::Receiver<bool>,
     pub(crate) max_clients: usize,
     pub(crate) sockets: OpenSockets,
+    pub(crate) control: Option<Arc<dyn Control>>,
 }
 
 /// This server's open WebSocket connections. An upgraded connection is no
@@ -331,6 +344,8 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/sounds/{*path}", get(static_file))
         .route("/ws", get(websocket))
         .route("/api/health", get(health))
+        .route("/api/control/tools", any(control::tools))
+        .route("/api/control/call", any(control::call))
         .fallback(not_found)
         .method_not_allowed_fallback(not_found)
         .with_state(state)

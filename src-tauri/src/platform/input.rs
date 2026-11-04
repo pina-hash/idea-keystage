@@ -177,6 +177,16 @@ impl InputReceiver {
             if self.shared.paused.load(Ordering::Acquire) {
                 continue;
             }
+            match convert::human_input(&raw) {
+                Some(true) => {
+                    super::HUMAN_ESCAPES.fetch_add(1, Ordering::Relaxed);
+                    super::HUMAN_EVENTS.fetch_add(1, Ordering::Relaxed);
+                }
+                Some(false) => {
+                    super::HUMAN_EVENTS.fetch_add(1, Ordering::Relaxed);
+                }
+                None => {}
+            }
             let t = self.rebaser.rebase(raw.time, now);
             if let Some(ev) = convert::to_input_event(&raw, t, &fill) {
                 if let InputEvent::Key(k) = &ev {

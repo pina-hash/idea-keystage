@@ -25,6 +25,8 @@ IDEA Keystage is a Windows 10 and 11 (x64) keystroke, keyboard and mouse visuali
 | `crates/keystage-server/`                                                                                                                                | server, OBS, exports       | axum server on `127.0.0.1`, WebSocket hub, routes, `demo` example binary                                                                     |
 | `crates/keystage-obs/`                                                                                                                                   | server, OBS, exports       | obs-websocket 5 client                                                                                                                       |
 | `crates/keystage-update/`                                                                                                                                | updates                    | Automatic updates: release choice, SHA256SUMS check, schedule and deferral, the HTTPS client (the app's only outbound requests)              |
+| `crates/keystage-automation/`                                                                                                                            | connector                  | Pure: human-like paths, key plans, `perform` scripts, abort watch, occluders, dirty spans, path rule, token, tool catalog                    |
+| `crates/keystage-mcp/`, `mcpb/`                                                                                                                          | connector                  | `idea-keystage-mcp` stdio MCP server (relays to the control API) and the `.mcpb` bundle manifest and tool list                               |
 | `src-tauri/src/platform/**`                                                                                                                              | Windows layer              | Hooks, watcher, UI Automation password check, legends, monitors, window styles, DPAPI; `stub.rs` off Windows                                 |
 | `src-tauri/src/app/**`, `lib.rs`, `main.rs`, `tauri.conf.json`, `capabilities/`, `permissions/`, `icons/`, `build.rs`                                    | app shell                  | Pipeline, Host A, tray, hotkeys, IPC commands, settings store, sessions, sound playback                                                      |
 | `src/overlay/**`, `src/lib/renderer/` (except below), `src/lib/protocol.ts`, `src/lib/themes/**`, `src/lib/styles/**`, `src/lib/demo/**`, `overlay.html` | renderer and themes        | The one renderer for Host A, OBS and the settings preview                                                                                    |
@@ -46,7 +48,7 @@ npx vitest run src/lib/renderer   # one folder
 npm run build            # dist/ (overlay.html and settings.html)
 npm run format:check     # Prettier, repo config
 
-cargo test               # default members: core, session, server, obs, update (never builds Tauri)
+cargo test               # default members: core, session, server, obs, update, automation, mcp (never builds Tauri)
 cargo test -p keystage-core
 cargo test -p idea-keystage                     # the app and platform tests
 cargo clippy --all-targets -- -D warnings
@@ -67,6 +69,8 @@ cargo run -p keystage-server --example demo -- --port 47820 --dist dist [--scrip
 npm run shots            # scripts/screenshots.mjs, output in .work/shots/final
 npm run perf             # scripts/perf.mjs, output in .work/perf
 UPDATE_GOLDEN=1 cargo test -p keystage-session --test golden   # regenerate export goldens, then read every change
+UPDATE_GOLDEN=1 cargo test -p keystage-automation --test catalog  # regenerate mcpb/tools.json from the tool catalog
+node scripts/pack-mcpb.mjs --exe <idea-keystage-mcp.exe> --version <x.y.z> --out <file.mcpb>   # the connector bundle (release.yml runs it)
 ```
 
 Formatting: Rust uses the repo `rustfmt.toml` (`cargo fmt -p <crate>`, or `rustfmt --edition 2021 <files>`); the front end and Markdown use the repo Prettier config (`npx prettier --write <files>`). Format only the files you changed, never the whole tree. Run the tests for what you touched; CI runs everything (`.github/workflows/ci.yml`: Linux front end and core crates, Windows app build, tests and clippy).
@@ -80,9 +84,10 @@ From `docs/ARCHITECTURE.md` section 8. Every change is reviewed against them.
 3. A password field (UI Automation `IsPassword`, or an Edit control with `ES_PASSWORD`), an excluded app, a locked session or an unidentified foreground suppresses everything: no display, no keyboard light, no log entry, no sound. Keys typed between a focus change and its classification are held and dropped unless the new focus is "not a password". Context changes that hide apply before queued input; changes that show more apply after it. Without UI Automation, typing is masked in every profile. Fail closed whenever in doubt.
 4. Nothing typed is written to disk except a Session Log the user started (hotkey, tray, settings, or an OBS recording while the user has turned on the OBS connection, whose "Session log with each recording" switch is on by default), and a Session Log stores only the `callout` messages that were displayed (mouse callouts with their screen point) plus chapter markers, and, only when the user turned on "Tutorial capture: log every click", the mouse entries logged while nothing was suppressed (`pointer`, never keys).
 5. `tracing` output never contains key names, text, callouts, captions, settings values, app names or import contents. Lifecycle only; settings issues by field name only.
-6. The server binds `127.0.0.1` only and enforces the WebSocket Host and Origin rules (section 6). No CORS headers.
+6. The server binds `127.0.0.1` only and enforces the WebSocket Host and Origin rules (section 6). No CORS headers. The connector's control API needs the per-install token, refuses any request with browser headers (`Origin`, `Sec-Fetch-*`), and exists only while the connector is allowed (section 14).
 7. The app opens exactly two kinds of outbound connection: the socket to the obs-websocket host the user configured, while OBS is turned on; and the update check and download (HTTPS GET to `api.github.com` for the latest release of `pina-hash/idea-keystage`, then that release's installer and `SHA256SUMS.txt` from `github.com`, redirects to GitHub's asset host included), while "Check for updates automatically" is on or when the user asks. Those requests send a fixed user agent and nothing about the user: no identifiers, no cookies, no telemetry. Nothing else.
 8. The OBS password is stored only as a DPAPI (CurrentUser) blob, never in plain text, never exported.
+9. Input is sent (section 14) only for a connector call, only while "Allow Claude to move the mouse and type" is on (off by default) and the hooks run; any input without the injected mark, a physical Escape, a lock or a pause stops it at once; it never types into a password field, an excluded app or an unidentified foreground. Injected input passes the same hooks and rules as a person's. Window titles are never read.
 
 ## SolidWorks data is sourced, never recalled
 

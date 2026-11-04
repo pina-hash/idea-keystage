@@ -9,6 +9,7 @@ authors.workspace = true
 
 [dependencies]
 keystage-core.workspace = true
+keystage-automation.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

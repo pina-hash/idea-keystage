@@ -637,6 +637,11 @@
 .ks-indicator.is-hidden {
 	--ks-lamp: var(--ks-lamp-hidden);
 }
+/* The connector is sending input: the paused lamp (a warning), with its own
+   glyph and word. */
+.ks-indicator.is-automated {
+	--ks-lamp: var(--ks-lamp-paused);
+}
 .ks-indicator-lamp {
 	flex: none;
 	width: calc(var(--ks-u) * 0.16);

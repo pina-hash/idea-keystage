@@ -59,7 +59,7 @@ export function visiblePieces(
 	}
 }
 
-export type IndicatorKind = 'paused' | 'hidden';
+export type IndicatorKind = 'paused' | 'hidden' | 'automated';
 
 export interface IndicatorView {
 	kind: IndicatorKind;
@@ -72,9 +72,19 @@ const SUPPRESSION_WORDS: Readonly<Record<Suppression, string>> = {
 	excluded: 'Excluded app',
 };
 
-/** The status pills to show, in order, or an empty list. */
-export function indicatorsFor(config: OverlayConfig, state: AppState): IndicatorView[] {
+/**
+ * The status pills to show, in order, or an empty list. "Automated" (the
+ * connector is moving the mouse or typing) shows only on Host A and in the
+ * settings preview, never in an OBS source, so a take stays clean.
+ */
+export function indicatorsFor(
+	config: OverlayConfig,
+	state: AppState,
+	host: ClientHost = 'obs'
+): IndicatorView[] {
 	const out: IndicatorView[] = [];
+	if (state.automated && (host === 'native' || host === 'preview'))
+		out.push({ kind: 'automated', detail: null });
 	if (state.paused && config.indicators.paused) out.push({ kind: 'paused', detail: null });
 	else if (state.suppressed && config.indicators.suppressed)
 		out.push({ kind: 'hidden', detail: SUPPRESSION_WORDS[state.suppressed] });
