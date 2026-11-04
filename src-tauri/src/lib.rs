@@ -8,7 +8,9 @@ pub mod platform;
 /// launch hands over to the running app (which brings its settings window
 /// forward) before anything else starts.
 pub fn run() {
-    let autostarted = std::env::args().any(|a| a == app::AUTOSTART_ARG);
+    // The autostart entry and a relaunch after an update both start in the tray.
+    let autostarted = std::env::args()
+        .any(|a| a == app::AUTOSTART_ARG || a == keystage_update::install::UPDATED_ARG);
     let built = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             app::on_second_instance(app)

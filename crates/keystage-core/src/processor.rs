@@ -17,6 +17,7 @@ use crate::event::{
 use crate::keys::{self, vk, Accelerator, KeyClass, KeyInfo};
 use crate::legends::{self, LegendProvider, TextMods};
 use crate::modifiers::{ModKey, ModSet, ModSlot, ModifierState};
+use crate::pointer::{PointerEntry, PointerLog};
 use crate::profile::{
     normalize_steps, Caption, CaptionIndex, Direction, MouseAction, MouseQuery, Profile, Step,
 };
@@ -186,6 +187,8 @@ pub struct Processor {
     mouse: MouseState,
     last_t: u64,
     stats: Stats,
+    /// Tutorial capture (`pointer.rs`), fed only while nothing is suppressed.
+    pointer: Option<PointerLog>,
 }
 
 impl Processor {
@@ -212,7 +215,29 @@ impl Processor {
             mouse: MouseState::default(),
             last_t: 0,
             stats: Stats::default(),
+            pointer: None,
         }
+    }
+
+    /// Turns tutorial capture on or off. Off drops anything not yet taken.
+    pub fn set_pointer_log(&mut self, on: bool) {
+        match (on, self.pointer.is_some()) {
+            (true, false) => self.pointer = Some(PointerLog::new(&self.rules)),
+            (false, true) => self.pointer = None,
+            _ => {}
+        }
+    }
+
+    pub fn pointer_log_on(&self) -> bool {
+        self.pointer.is_some()
+    }
+
+    /// The tutorial capture entries since the last call (empty when off).
+    pub fn take_pointer(&mut self) -> Vec<PointerEntry> {
+        self.pointer
+            .as_mut()
+            .map(PointerLog::take)
+            .unwrap_or_default()
     }
 
     /// Replaces the general rules. The active profile's `display` block is
@@ -282,6 +307,9 @@ impl Processor {
             }
         }
         self.suppressed = s;
+        if let Some(p) = self.pointer.as_mut() {
+            p.reset();
+        }
         let t = self.last_t;
         self.current = None;
         self.tap = None;
@@ -415,14 +443,31 @@ impl Processor {
                     return;
                 }
                 self.flush_pending_before(*t_ms, legends, out);
+                if self.visible() {
+                    let mods = self.mods.held();
+                    if let Some(p) = self.pointer.as_mut() {
+                        p.button(*button, *down, *x, *y, *t_ms, mods);
+                    }
+                }
                 self.on_button(*button, *down, *x, *y, *t_ms, out);
             }
             InputEvent::Wheel { dx, dy, x, y, t_ms } => {
                 self.flush_pending_before(*t_ms, legends, out);
+                if self.visible() {
+                    let mods = self.mods.held();
+                    if let Some(p) = self.pointer.as_mut() {
+                        p.wheel(*dx, *dy, *x, *y, *t_ms, mods);
+                    }
+                }
                 self.on_wheel(*dx, *dy, *x, *y, *t_ms, out);
             }
             InputEvent::Move { x, y, t_ms } => {
                 self.flush_pending_before(*t_ms, legends, out);
+                if self.visible() {
+                    if let Some(p) = self.pointer.as_mut() {
+                        p.moved(*x, *y, *t_ms);
+                    }
+                }
                 self.on_move(*x, *y, *t_ms, out);
             }
             InputEvent::ModifierResync { held, t_ms } => {
@@ -492,6 +537,7 @@ impl Processor {
                         MouseAction::Drag,
                         h.mods,
                         None,
+                        (h.x0, h.y0),
                         now_ms,
                         &mut out,
                     );
@@ -1103,6 +1149,9 @@ impl Processor {
             profile: self.profile_id(),
             t_ms: t,
             updated_ms: t,
+            x: None,
+            y: None,
+            monitor: None,
         };
         out.push(DisplayEvent::Callout(callout.clone()));
         self.stats.callouts_created += 1;
@@ -1280,16 +1329,36 @@ impl Processor {
             && (self.rules.plain_left_clicks || button != MouseButton::Left || !mods.is_empty())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn mouse_callout(
         &mut self,
         button: MouseButton,
         action: MouseAction,
         mods: ModSet,
         direction: Option<Direction>,
+        at: (i32, i32),
         t: u64,
         out: &mut Vec<DisplayEvent>,
     ) -> u64 {
-        self.mouse_callout_n(button, action, mods, direction, 1, t, out)
+        self.mouse_callout_n(button, action, mods, direction, 1, at, t, out)
+    }
+
+    /// Puts the screen point on the callout `id` (the current one) and on
+    /// the update just pushed for it. Only the Session Log keeps it: the
+    /// wire message leaves it out (`DisplayEvent::to_server_msg`).
+    fn set_point(&mut self, id: u64, at: (i32, i32), out: &mut [DisplayEvent]) {
+        if let Some(cur) = &mut self.current {
+            if cur.callout.id == id {
+                cur.callout.x = Some(at.0);
+                cur.callout.y = Some(at.1);
+            }
+        }
+        if let Some(DisplayEvent::Callout(c)) = out.last_mut() {
+            if c.id == id {
+                c.x = Some(at.0);
+                c.y = Some(at.1);
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1300,6 +1369,7 @@ impl Processor {
         mods: ModSet,
         direction: Option<Direction>,
         add: u32,
+        at: (i32, i32),
         t: u64,
         out: &mut Vec<DisplayEvent>,
     ) -> u64 {
@@ -1316,7 +1386,9 @@ impl Processor {
             })
             .cloned();
         let sig = format!("mouse:{}:{}", mods.bits(), chip.key);
-        self.emit_collapsible(CalloutKind::Mouse, vec![chips], cap, sig, add, t, out)
+        let id = self.emit_collapsible(CalloutKind::Mouse, vec![chips], cap, sig, add, t, out);
+        self.set_point(id, at, out);
+        id
     }
 
     fn on_button(
@@ -1401,9 +1473,25 @@ impl Processor {
                 && dist >= f64::from(self.rules.gesture_min_px)
             {
                 let dir = Direction::from_vector(dx, dy);
-                self.mouse_callout(button, MouseAction::Gesture, h.mods, Some(dir), t, out);
+                self.mouse_callout(
+                    button,
+                    MouseAction::Gesture,
+                    h.mods,
+                    Some(dir),
+                    (h.x0, h.y0),
+                    t,
+                    out,
+                );
             } else if h.callout.is_none() {
-                self.mouse_callout(button, MouseAction::Drag, h.mods, None, t, out);
+                self.mouse_callout(
+                    button,
+                    MouseAction::Drag,
+                    h.mods,
+                    None,
+                    (h.x0, h.y0),
+                    t,
+                    out,
+                );
             }
             return;
         }
@@ -1438,15 +1526,33 @@ impl Processor {
                     cur.callout.updated_ms = t;
                     cur.last_ms = t;
                     cur.signature = Some(format!("mouse:{}:{}", h.mods.bits(), chip.key));
+                    cur.callout.x = Some(h.x0);
+                    cur.callout.y = Some(h.y0);
                     out.push(DisplayEvent::Callout(cur.callout.clone()));
                     self.stats.callout_updates += 1;
                 }
             } else {
-                self.mouse_callout(button, MouseAction::DoubleClick, h.mods, None, t, out);
+                self.mouse_callout(
+                    button,
+                    MouseAction::DoubleClick,
+                    h.mods,
+                    None,
+                    (h.x0, h.y0),
+                    t,
+                    out,
+                );
             }
             return;
         }
-        let id = self.mouse_callout(button, MouseAction::Click, h.mods, None, t, out);
+        let id = self.mouse_callout(
+            button,
+            MouseAction::Click,
+            h.mods,
+            None,
+            (h.x0, h.y0),
+            t,
+            out,
+        );
         self.mouse.last_click = Some(ClickRecord {
             button,
             x: h.x0,
@@ -1484,7 +1590,15 @@ impl Processor {
             }
             let mut callout = None;
             if button != MouseButton::Right && self.mouse_shown(button, h.mods) {
-                callout = Some(self.mouse_callout(button, MouseAction::Drag, h.mods, None, t, out));
+                callout = Some(self.mouse_callout(
+                    button,
+                    MouseAction::Drag,
+                    h.mods,
+                    None,
+                    (h.x0, h.y0),
+                    t,
+                    out,
+                ));
             }
             if let Some(b) = self.mouse.buttons[i].as_mut() {
                 b.dragged = true;
@@ -1543,6 +1657,7 @@ impl Processor {
                 mods,
                 Some(dir),
                 notches_y.unsigned_abs(),
+                (x, y),
                 t,
                 out,
             );
@@ -1559,6 +1674,7 @@ impl Processor {
                 mods,
                 Some(dir),
                 notches_x.unsigned_abs(),
+                (x, y),
                 t,
                 out,
             );

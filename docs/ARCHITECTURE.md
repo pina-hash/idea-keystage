@@ -30,6 +30,7 @@ This file is the contract every surface is built against. When code and this fil
 | `crates/keystage-session/`                                                                                                                                                                                                     | (f) server, OBS, exports       | Session Log, chapter markers, timecode mapping, exports (srt, md, json, chapters). Pure Rust, depends on keystage-core                                       |
 | `crates/keystage-server/`                                                                                                                                                                                                      | (f)                            | axum server, WebSocket hub, routes, origin and host checks, `demo` example binary                                                                            |
 | `crates/keystage-obs/`                                                                                                                                                                                                         | (f)                            | obs-websocket 5 client, auth, record state and timecode                                                                                                      |
+| `crates/keystage-update/`                                                                                                                                                                                                      | (h) updates                    | automatic updates (section 13): version compare, release choice, SHA256SUMS, schedule and deferral, the HTTPS client                                         |
 | `src-tauri/src/platform/**`                                                                                                                                                                                                    | (b) Windows layer              | hooks, watcher, UIA password check, foreground process, legends, monitors, window styles, DPAPI, session notifications; `platform/stub.rs` for non-Windows   |
 | `src-tauri/src/app/**`, `src-tauri/src/main.rs`, `lib.rs`, `tauri.conf.json`, `capabilities/`, `icons/`, `build.rs`                                                                                                            | (e) app shell                  | pipeline wiring, tray, hotkeys, IPC commands, settings store, profiles, sound playback, overlay window management                                            |
 | `src/overlay/**`, `src/lib/renderer/Callouts*.svelte`, `Keycap.svelte`, `src/lib/renderer/transport.ts`, `store.svelte.ts`, `src/lib/themes/**`, `src/lib/styles/**`, `src/lib/protocol.ts`, `src/lib/demo/**`, `overlay.html` | (c) renderer and themes        |                                                                                                                                                              |
@@ -245,8 +246,9 @@ Settings {
   hotkeys: { pause, toggle_keyboard, toggle_solidworks, chapter_marker, session_toggle },   // accelerator strings
   sound: { enabled: false, pack: String, volume: f32 },
   obs: { enabled: false, host: "127.0.0.1", port: 4455, password_dpapi: Option<String> /* base64 DPAPI blob, never plain text */, auto_session: true },
-  session: { folder: Option<String>, autosave: true },
-  startup: { start_with_windows: false, show_settings: true /* open the settings window at start, except when started by the autostart entry */ },
+  session: { folder: Option<String>, autosave: true, tutorial_capture: false /* "Tutorial capture: log every click", section 10 */ },
+  startup: { start_with_windows: false, show_settings: true /* open the settings window at start, except when started by the autostart entry or relaunched after an update */ },
+  updates: { auto: true /* "Check for updates automatically", section 13 */ },
 }
 ```
 
@@ -263,10 +265,15 @@ The settings file is `settings.json` in the Tauri app config folder (`%APPDATA%\
    - The app shell orders context changes against queued input fail closed: a change that hides applies before the input drained with it; a change that shows more applies only after the input of that pipeline pass and the next one.
    - While UI Automation password detection is not running, typing is masked in every profile (no text runs, no captions for bare typing keys), and `Status.notices` says so.
    - The app's own windows always use the general profile, so typing in the settings window is always masked.
-4. Nothing typed is written to disk except a Session Log the user started (by hotkey, tray, settings, or by an OBS recording while `obs.enabled` is on and `obs.auto_session` (default true) is on), and a Session Log stores only the `callout` messages that were displayed plus chapter markers. Masked typing makes no key sound.
+4. Nothing typed is written to disk except a Session Log the user started (by hotkey, tray, settings, or by an OBS recording while `obs.enabled` is on and `obs.auto_session` (default true) is on), and a Session Log stores only the `callout` messages that were displayed plus chapter markers. Mouse callouts carry their screen point and monitor in the Session Log only, never on the wire. With `session.tutorial_capture` on (off by default) a Session Log started then also keeps `pointer` entries (presses, releases, double clicks, drags, wheel steps, a cursor path at up to 30 per second; no keys), which the processor logs only while nothing is suppressed (rule 3) and which never leave the Session Log. Masked typing makes no key sound.
 5. `tracing` output never contains key names, text, callouts or captions. Lifecycle only. The log is `keystage.log` in the app log folder (`%LOCALAPPDATA%\com.ideabosco.keystage\logs`), 1 MiB per file, 3 files, with a fixed filter (no `RUST_LOG`); settings issues are logged by field name only, and panics log the thread and location only.
 6. The server binds `127.0.0.1` only and enforces the Host and Origin rules in section 6.
-7. The app makes no outbound network request. The only socket it opens is to the obs-websocket host the user configured (default `127.0.0.1:4455`), and only while OBS is turned on in settings. No telemetry, no update check, no updater plugin.
+7. The app opens exactly two kinds of outbound connection (amended 2026-11-04 at Mr. Pina's request, DECISIONS item 9):
+   - the socket to the obs-websocket host the user configured (default `127.0.0.1:4455`), only while OBS is turned on in settings;
+   - the update check and download (section 13): HTTPS GET requests to `https://api.github.com/repos/pina-hash/idea-keystage/releases/latest`, then to that release's `IDEA-Keystage_<version>_x64-setup.exe` and `SHA256SUMS.txt` under `https://github.com/pina-hash/idea-keystage/releases/download/` (GitHub redirects these to its asset host, over HTTPS only), made shortly after start and every 6 hours while "Check for updates automatically" (`updates.auto`, on by default) is on, and when the user presses Check now. They carry a fixed user agent (`IDEA-Keystage-updater`) and the GitHub `Accept` and API version headers, and nothing about the user, the computer or what was typed: no identifiers, no cookies, no telemetry. GitHub sees the network address, as with any download.
+
+   Nothing else connects anywhere. No updater plugin.
+
 8. The OBS password is stored only as a DPAPI (CurrentUser) blob. Settings exports leave it out.
 
 ## 9. Profiles
@@ -330,7 +337,9 @@ The settings file is `settings.json` in the Tauri app config folder (`%APPDATA%\
 ## 10. Session Log and exports (crate `keystage-session`)
 
 - A session holds `callout` snapshots (final state of each callout id), chapter markers `{ t_ms, name }`, start time, and an optional OBS timecode mapping (record duration at a known monotonic instant, paused intervals).
-- Exports: `.srt` (one cue per callout: `Ctrl + B  Rebuilds the model`), Markdown ("Shortcuts used in this video", unique shortcuts with command names and counts, ASCII `x4`), JSON (`keystage.session/1`, documented in `docs/SESSION_FORMAT.md`), YouTube chapter lines (`00:00 Start`, then markers; YouTube needs the first at 00:00). Each export returns its text plus warnings (`ExportWarning::message()`); the crate writes no file except `Session::save`.
+- Mouse callouts carry `x`, `y` (physical screen pixels, virtual-screen coordinates, of the press point or the wheel cursor at the last update) from the processor, and the shell adds `monitor` (the device name of the monitor holding that point) when it records them; `DisplayEvent::to_server_msg` leaves all three off the wire.
+- Tutorial capture (`session.tutorial_capture`, or the per-session choice of whoever starts it): the session's `pointer` array. The processor's `PointerLog` (`keystage-core/src/pointer.rs`) logs every press, release, double click, drag start and end and wheel step, and a cursor sample at most every 34 ms, using the same drag and double click thresholds as the overlay, only while nothing is suppressed, and forgets held buttons when suppression begins. The shell turns it on with `Control::PointerLog` exactly while a capturing Session Log runs; the pipeline hands the entries to the Session Log and nowhere else.
+- Exports: `.srt` (one cue per callout: `Ctrl + B  Rebuilds the model`), Markdown ("Shortcuts used in this video", unique shortcuts with command names and counts, ASCII `x4`), JSON (`keystage.session/1.1`, documented in `docs/SESSION_FORMAT.md`), YouTube chapter lines (`00:00 Start`, then markers; YouTube needs the first at 00:00). Each export returns its text plus warnings (`ExportWarning::message()`); the crate writes no file except `Session::save`.
 - Sessions are saved as `<id>.json` in `settings.session.folder` or `Documents\IDEA Keystage\Sessions`, only when a session stops (with `autosave` on). A running session is stopped and saved on Quit.
 
 ## 11. Look
@@ -378,6 +387,7 @@ The settings file is `settings.json` in the Tauri app config folder (`%APPDATA%\
 | `hotkeys_capture`                | `{ active }`                                                   | `null` (unregisters the hotkeys while a hotkey field captures; they return on `false` or after 30 s)                                                                     |
 | `hotkeys_status`                 |                                                                | `[{ name, accelerator, registered, error }]`                                                                                                                             |
 | `platform_info`                  |                                                                | `{ os_build: number \| null, exclude_from_capture_supported: boolean }`                                                                                                  |
+| `update_check`                   |                                                                | `Status` (wakes the update worker; the result arrives in `Status.update`, section 13)                                                                                    |
 
 Every command has its own Tauri permission (`tauri_build::AppManifest::commands`, generated into `src-tauri/permissions/autogenerated/`). The `settings` window gets the app commands, event listen and unlisten, dialog open and save, clipboard write and `opener:allow-open-url` for `https://*` only; `overlay-*` windows get event listen and unlisten and `allow-overlay-hello` only. No window has file system or shell permissions. Adding a command needs the name in `build.rs`, `commands.rs` and `capabilities/settings.json`; a unit test checks all three against `src/settings/ipc.ts`.
 
@@ -404,6 +414,22 @@ type Status = {
 	};
 	hook: { installed: boolean; dropped: number }; // dropped = queue overflow count, should stay 0
 	version: string;
+	update: {
+		state:
+			| 'idle'
+			| 'off'
+			| 'checking'
+			| 'up_to_date'
+			| 'available'
+			| 'downloading'
+			| 'ready'
+			| 'installing'
+			| 'updated'
+			| 'error';
+		message: string; // one plain sentence, also the tray's update line
+		version: string | null;
+		checked: string | null; // ISO 8601 of the last finished check
+	};
 	notices: string[]; // plain sentences the user should read: input capture or app detection did not start, password detection
 	// unavailable, a session log not saved, a hotkey another program holds, OBS, sound, start with Windows,
 	// a settings file reset, the pipeline stopped after an error
@@ -413,3 +439,15 @@ type Status = {
 Events the app emits to the settings window: `keystage://status` (Status, on change, checked at least once a second), `keystage://settings` (after every stored settings change, from the tray, a hotkey, an import, a reset or a save; payload the settings without `obs.password_dpapi`, which the window may ignore and read `get_settings` instead), `keystage://overlay` (the same protocol messages Host A receives, for the live preview, serialized once). The settings window saves by reading `get_settings` and sending it with only the values it edited (a three-way merge), so a change made from the tray or a hotkey is never overwritten. Dialogs (open `.sldreg`, save exports) use `@tauri-apps/plugin-dialog` from the front end, which then passes the chosen path to the command.
 
 The app CSP (`tauri.conf.json`) is `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost ws://127.0.0.1:*; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'` with `dangerousDisableAssetCspModification: ["style-src"]`: Tauri otherwise adds a nonce to `style-src`, and with a nonce present browsers ignore `'unsafe-inline'`, which would block the static inline `style` attributes in the Svelte templates. `script-src` keeps Tauri's hashes and nonces.
+
+## 13. Automatic updates (crate `keystage-update`, app shell `updater.rs`)
+
+Added in 0.2.0 at Mr. Pina's request (DECISIONS item 9). The official `tauri-plugin-updater` is not used: it requires minisign signatures and a signing secret.
+
+- **Schedule.** One worker thread (`keystage-update`) runs `Updater`. The first check is 20 s after start, then every 6 hours; a failed check is retried after 30 minutes. With `updates.auto` off nothing is checked unless the user presses Check now (settings window, General page) or chooses Check for updates in the tray (`update_check`, `Action::CheckUpdates`).
+- **Check.** `GET https://api.github.com/repos/pina-hash/idea-keystage/releases/latest` (rule 7). The answer is refused unless it is a final release (not draft, not pre-release) whose tag is `v` plus a semver version; it is newer only by semver precedence. It must carry exactly one `IDEA-Keystage_<version>_x64-setup.exe` and one `SHA256SUMS.txt`, each at exactly `https://github.com/pina-hash/idea-keystage/releases/download/<tag>/<name>`, with a listed size within limits (installer up to 256 MiB, sums up to 64 KiB).
+- **Download and verification.** `SHA256SUMS.txt` first: one `<64 hex>  <name>` line per file, a malformed line or a name listed twice refuses. The installer streams to `<name>.part` in `%LOCALAPPDATA%\com.ideabosco.keystage\updates` while it is hashed; it is kept only when its length equals the listed size and its SHA-256 equals the listed one, then renamed and hashed again from disk. Every refusal deletes the file and installs nothing. The client is `ureq` with rustls and webpki roots, `https_only` (redirects included), at most 5 redirects, no cookies, no compression.
+- **When it installs.** At once, unless a Session Log or an OBS recording runs (`Shell::recording_busy`); then the status says "Update <v> is downloaded and installs when recording stops." and the worker installs within 5 s of the recording stopping. A copy that the installer did not set up (no `uninstall.exe` beside the exe: the portable exe, a development build) never downloads; it says a newer version is available.
+- **Install.** The file is hashed once more, `updates/pending.json` (`{ from, to }`) is written, and the installer starts through `ShellExecuteW` with `/P /UPDATE /R /ARGS --updated`, then the app quits normally (Session Logs are already stopped, so nothing is lost). Switches, from tauri-bundler 2.10.1's `installer.nsi`: `/P` passive (progress bar only; the running app is closed through the Restart Manager without asking), `/UPDATE` (no uninstall step, no desktop shortcut), `/R` (start the app again after a successful passive install, with the text after `/ARGS` as its arguments). `installMode` is `currentUser`, so no administrator prompt. `--updated` starts the app in the tray like the autostart entry.
+- **Next run.** `install::startup` reads and removes the marker and every old download: the running version at least the marker's `to` is "Updated to <v>."; otherwise "The update to <v> did not finish."
+- **Status.** `Status.update` (`state`, `message`, `version`, `checked`) feeds the settings window's Updates card and the tray's update line. Messages never name a path, a host or an error code. The log has lifecycle lines only: `update check started`, `update check failed` with a fixed reason word, `update check found newer` with the version, `update downloaded and verified`, `update installer started`, `update installed`.

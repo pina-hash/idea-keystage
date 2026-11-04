@@ -21,6 +21,7 @@ pub mod sizes;
 pub mod sound;
 pub mod state;
 pub mod tray;
+pub mod updater;
 
 use std::sync::Arc;
 

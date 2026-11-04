@@ -154,7 +154,7 @@ async fn health() {
     assert_eq!(r.status, 200);
     assert_eq!(
         String::from_utf8(r.body.clone()).unwrap(),
-        r#"{"ok":true,"app":"IDEA Keystage","version":"0.1.0","protocol":1}"#
+        r#"{"ok":true,"app":"IDEA Keystage","version":"0.2.0","protocol":1}"#
     );
     assert_eq!(r.header("content-type"), Some("application/json"));
     assert_eq!(r.header("cache-control"), Some("no-store"));

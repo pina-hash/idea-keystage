@@ -19,6 +19,45 @@ pub struct Status {
     pub session: Option<SessionStatus>,
     pub hook: HookStatus,
     pub version: String,
+    /// Automatic updates (`keystage-update`).
+    #[serde(default)]
+    pub update: UpdateStatus,
+}
+
+/// Where the automatic update stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateState {
+    /// Waiting for the first check.
+    #[default]
+    Idle,
+    /// Automatic checks are off and nothing was checked this run.
+    Off,
+    Checking,
+    UpToDate,
+    /// A newer version exists but this copy does not install it (the
+    /// portable exe, or a build that was not installed by the installer).
+    Available,
+    Downloading,
+    /// Downloaded and verified; waits for the recording to stop.
+    Ready,
+    Installing,
+    /// This run is the version an update installed.
+    Updated,
+    Error,
+}
+
+/// `Status.update`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateStatus {
+    pub state: UpdateState,
+    /// One plain sentence for the settings window and the tray.
+    pub message: String,
+    /// The version the message is about (newest found, or installed).
+    pub version: Option<String>,
+    /// When the last check finished, ISO 8601 UTC.
+    pub checked: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -189,11 +228,22 @@ mod tests {
                 dropped: 0,
             },
             version: "0.1.0".into(),
+            update: UpdateStatus {
+                state: UpdateState::Ready,
+                message: "Version 0.3.0 is downloaded.".into(),
+                version: Some("0.3.0".into()),
+                checked: None,
+            },
         };
         let v = serde_json::to_value(&st).unwrap();
         assert_eq!(v["suppressed"], "password");
         assert_eq!(v["obs"]["state"], "auth_failed");
         assert_eq!(v["hook"]["dropped"], 0);
+        assert_eq!(v["update"]["state"], "ready");
+        assert_eq!(
+            serde_json::to_value(UpdateState::UpToDate).unwrap(),
+            "up_to_date"
+        );
         let back: Status = serde_json::from_value(v).unwrap();
         assert_eq!(back, st);
 

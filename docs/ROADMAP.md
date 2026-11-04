@@ -32,11 +32,10 @@ The installer and portable exe are unsigned, so SmartScreen warns on first run u
 
 ## 4. Updates
 
-There is no updater and no update check, by privacy rule 7 (no outbound network request).
+Built in 0.2.0 (ARCHITECTURE.md section 13, DECISIONS item 9): an automatic update from GitHub Releases, verified against `SHA256SUMS.txt`. Still open:
 
-- Tauri's updater plugin requires a signature that "cannot be disabled" (https://v2.tauri.app/plugin/updater/, read 2026-10-01), a key pair kept in release secrets, and a feed URL the app would poll. That poll is an outbound request.
-- An option that keeps the rule: a "Check for a new version" button in settings that opens https://github.com/pina-hash/idea-keystage/releases/latest in the browser (the opener plugin already allows `https://` links). No background request.
-- Another: an opt-in updater, off by default, that checks only when the user presses a button. It would need the signing key, a changed privacy rule and a line in the README.
+- Authenticity beyond HTTPS and the repository account. A release signature (minisign or Authenticode) would let the app refuse an installer that someone with write access to the releases replaced together with its checksum list. It needs a signing key kept in release secrets.
+- Copies before 0.2.0 have no updater: moving from 0.1.0 to 0.2.0 is one manual install.
 
 ## 5. Website integration (design only)
 

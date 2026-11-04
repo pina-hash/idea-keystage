@@ -5,7 +5,8 @@
 //! * The menu: a status line (Active, Paused or Hidden, the profile, the
 //!   recording timecode), Pause or Resume, Keyboard visual, SolidWorks mode
 //!   (Auto, On, Off), Native overlay, Start or Stop session log, Add chapter
-//!   marker, Open settings, Quit.
+//!   marker, the update line (what the automatic update is doing), Check
+//!   for updates, Open settings, Quit.
 //! * The tooltip mirrors the status line. A left click opens settings.
 //!
 //! Menu clicks arrive on the main thread and only queue an action. Updates
@@ -34,6 +35,8 @@ const ID_SW_OFF: &str = "sw-off";
 const ID_NATIVE: &str = "native";
 const ID_SESSION: &str = "session";
 const ID_MARKER: &str = "marker";
+const ID_UPDATE_LINE: &str = "update-line";
+const ID_CHECK_UPDATES: &str = "check-updates";
 const ID_SETTINGS: &str = "settings";
 const ID_QUIT: &str = "quit";
 
@@ -50,6 +53,8 @@ pub struct TrayView {
     pub native_overlay: bool,
     pub session_active: bool,
     pub marker_enabled: bool,
+    /// The update status sentence.
+    pub update_line: String,
 }
 
 /// The action for a menu item id.
@@ -63,6 +68,7 @@ pub fn menu_action(id: &str) -> Option<Action> {
         ID_NATIVE => Action::ToggleNativeOverlay,
         ID_SESSION => Action::ToggleSession,
         ID_MARKER => Action::AddMarker,
+        ID_CHECK_UPDATES => Action::CheckUpdates,
         ID_SETTINGS => Action::OpenSettings,
         ID_QUIT => Action::Quit,
         _ => return None,
@@ -85,6 +91,35 @@ pub fn session_text(active: bool) -> &'static str {
     }
 }
 
+/// The update line, short enough for a menu (the full sentence is in the
+/// settings window).
+pub fn update_line_text(message: &str) -> String {
+    const MAX: usize = 60;
+    if message.is_empty() {
+        return "Updates".to_string();
+    }
+    if message.chars().count() <= MAX {
+        return message.to_string();
+    }
+    // The first sentence, or the first 60 characters at a word boundary.
+    let first = message.split(". ").next().unwrap_or(message);
+    if first.chars().count() <= MAX {
+        return format!("{}.", first.trim_end_matches('.'));
+    }
+    let mut out = String::new();
+    for w in first.split_whitespace() {
+        if out.chars().count() + w.chars().count() + 1 > MAX - 3 {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(w);
+    }
+    out.push_str("...");
+    out
+}
+
 fn image(glyph: TrayGlyph, size: u32) -> Image<'static> {
     Image::new_owned(icons::render(glyph, size), size, size)
 }
@@ -99,6 +134,7 @@ pub struct Tray<R: Runtime> {
     native: CheckMenuItem<R>,
     session: MenuItem<R>,
     marker: MenuItem<R>,
+    update_line: MenuItem<R>,
     last: Mutex<Option<TrayView>>,
 }
 
@@ -150,17 +186,39 @@ impl<R: Runtime> Tray<R> {
             view.marker_enabled,
             none,
         )?;
+        let update_line = MenuItem::with_id(
+            app,
+            ID_UPDATE_LINE,
+            update_line_text(&view.update_line),
+            false,
+            none,
+        )?;
+        let check = MenuItem::with_id(app, ID_CHECK_UPDATES, "Check for updates", true, none)?;
         let settings = MenuItem::with_id(app, ID_SETTINGS, "Open settings", true, none)?;
         let quit = MenuItem::with_id(app, ID_QUIT, "Quit IDEA Keystage", true, none)?;
         let sep1 = PredefinedMenuItem::separator(app)?;
         let sep2 = PredefinedMenuItem::separator(app)?;
         let sep3 = PredefinedMenuItem::separator(app)?;
+        let sep4 = PredefinedMenuItem::separator(app)?;
         let menu = Menu::with_id_and_items(
             app,
             "tray",
             &[
-                &status, &sep1, &pause, &keyboard, &sw, &native, &sep2, &session, &marker, &sep3,
-                &settings, &quit,
+                &status,
+                &sep1,
+                &pause,
+                &keyboard,
+                &sw,
+                &native,
+                &sep2,
+                &session,
+                &marker,
+                &sep3,
+                &update_line,
+                &check,
+                &sep4,
+                &settings,
+                &quit,
             ],
         )?;
         let menu_cb = on_action.clone();
@@ -199,6 +257,7 @@ impl<R: Runtime> Tray<R> {
             native,
             session,
             marker,
+            update_line,
             last: Mutex::new(Some(view.clone())),
         })
     }
@@ -253,6 +312,12 @@ impl<R: Runtime> Tray<R> {
         if all || l.marker_enabled != view.marker_enabled {
             check(self.marker.set_enabled(view.marker_enabled));
         }
+        if all || l.update_line != view.update_line {
+            check(
+                self.update_line
+                    .set_text(update_line_text(&view.update_line)),
+            );
+        }
         if ok {
             *self.last.lock() = Some(view.clone());
         } else {
@@ -275,6 +340,12 @@ mod tests {
         );
         assert_eq!(menu_action(ID_QUIT), Some(Action::Quit));
         assert_eq!(menu_action(ID_STATUS), None, "the status line does nothing");
+        assert_eq!(
+            menu_action(ID_UPDATE_LINE),
+            None,
+            "the update line does nothing"
+        );
+        assert_eq!(menu_action(ID_CHECK_UPDATES), Some(Action::CheckUpdates));
         assert_eq!(menu_action("sw"), None);
         for id in [
             ID_KEYBOARD,
@@ -283,6 +354,7 @@ mod tests {
             ID_NATIVE,
             ID_SESSION,
             ID_MARKER,
+            ID_CHECK_UPDATES,
             ID_SETTINGS,
         ] {
             assert!(menu_action(id).is_some(), "{id}");
@@ -295,5 +367,23 @@ mod tests {
         assert_eq!(pause_text(true), "Resume");
         assert_eq!(session_text(false), "Start session log");
         assert_eq!(session_text(true), "Stop session log");
+    }
+
+    #[test]
+    fn the_update_line_fits_a_menu() {
+        assert_eq!(update_line_text(""), "Updates");
+        assert_eq!(update_line_text("Updated to 0.3.0."), "Updated to 0.3.0.");
+        let long = "Update 0.3.0 is downloaded and installs when recording stops.";
+        assert_eq!(update_line_text(long), long);
+        let two = "The update check could not reach GitHub. It tries again in 30 minutes.";
+        assert_eq!(
+            update_line_text(two),
+            "The update check could not reach GitHub."
+        );
+        let one = "Version 0.3.0 is available. This copy was not set up by the installer, so it does not update itself; download the installer from the releases page.";
+        assert_eq!(update_line_text(one), "Version 0.3.0 is available.");
+        let w = "a ".repeat(80);
+        let out = update_line_text(&w);
+        assert!(out.chars().count() <= 60 && out.ends_with("..."), "{out}");
     }
 }

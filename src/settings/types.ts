@@ -110,6 +110,13 @@ export interface ObsSettings {
 export interface SessionSettings {
 	folder: string | null;
 	autosave: boolean;
+	/** "Tutorial capture: log every click" (session format 1.1 `pointer`). */
+	tutorial_capture: boolean;
+}
+
+/** Automatic updates (ARCHITECTURE.md section 13). */
+export interface UpdateSettings {
+	auto: boolean;
 }
 
 export interface StartupSettings {
@@ -136,11 +143,35 @@ export interface Settings {
 	obs: ObsSettings;
 	session: SessionSettings;
 	startup: StartupSettings;
+	updates: UpdateSettings;
 }
 
 /* ------------------------------------------------------------------------ */
 /* Status and command results (ARCHITECTURE.md section 12, ipc.rs)           */
 /* ------------------------------------------------------------------------ */
+
+export const UPDATE_STATES = [
+	'idle',
+	'off',
+	'checking',
+	'up_to_date',
+	'available',
+	'downloading',
+	'ready',
+	'installing',
+	'updated',
+	'error',
+] as const;
+export type UpdateState = (typeof UPDATE_STATES)[number];
+
+/** `Status.update` (keystage-core `UpdateStatus`). */
+export interface UpdateStatus {
+	state: UpdateState;
+	message: string;
+	version: string | null;
+	/** ISO 8601 UTC of the last finished check. */
+	checked: string | null;
+}
 
 export type ObsState = 'off' | 'connecting' | 'connected' | 'auth_failed' | 'error';
 
@@ -167,6 +198,7 @@ export interface Status {
 	};
 	hook: { installed: boolean; dropped: number };
 	version: string;
+	update: UpdateStatus;
 	/**
 	 * Plain sentences the app wants the user to read, possibly several:
 	 * input capture or app detection did not start, a session log could not

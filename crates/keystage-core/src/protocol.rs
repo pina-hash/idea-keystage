@@ -550,6 +550,9 @@ mod tests {
             profile: Some("solidworks".into()),
             t_ms: 1234,
             updated_ms: 1234,
+            x: None,
+            y: None,
+            monitor: None,
         }
     }
 
@@ -704,7 +707,7 @@ mod tests {
             APP_VERSION, DEFAULT_CONFIG_JSON
         );
         round_trip(&msg, &expected);
-        assert_eq!(APP_VERSION, "0.1.0");
+        assert_eq!(APP_VERSION, "0.2.0");
     }
 
     #[test]

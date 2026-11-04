@@ -36,6 +36,7 @@ const COMMANDS: &[&str] = &[
     "hotkeys_capture",
     "hotkeys_status",
     "platform_info",
+    "update_check",
 ];
 
 fn main() {

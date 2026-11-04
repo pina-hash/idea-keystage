@@ -1,6 +1,6 @@
 IDEA Keystage {{VERSION}} for Windows 10 and Windows 11 (64-bit).
 
-IDEA Keystage shows your keystrokes, a keyboard and your mouse while you record SolidWorks tutorials, either in its own on-screen overlay or as OBS Browser Sources. It works on this computer only: no account, no telemetry, no update checks, no internet connections. Its OBS sources are served to this computer only (127.0.0.1), and it talks to OBS only if you turn that on. Nothing is shown while a password field has focus.
+IDEA Keystage shows your keystrokes, a keyboard and your mouse while you record SolidWorks tutorials, either in its own on-screen overlay or as OBS Browser Sources. It works on this computer only: no account, no telemetry. Its one internet request is the automatic update check against these GitHub releases, which you can turn off. Its OBS sources are served to this computer only (127.0.0.1), and it talks to OBS only if you turn that on. Nothing is shown while a password field has focus.
 
 ## Downloads
 

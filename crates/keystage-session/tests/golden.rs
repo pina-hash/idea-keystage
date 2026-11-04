@@ -6,7 +6,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use keystage_core::{Callout, CalloutKind, Chip, ChipKind};
+use keystage_core::pointer::{PointerEntry, PointerKind};
+use keystage_core::{Callout, CalloutKind, Chip, ChipKind, MouseButton};
 use keystage_session::{
     ExportFormat, ExportOptions, ExportWarning, RecordEvent, Session, SessionLog,
 };
@@ -70,6 +71,36 @@ fn callout(
         profile: Some("fixture".to_string()),
         t_ms,
         updated_ms,
+        x: None,
+        y: None,
+        monitor: None,
+    }
+}
+
+/// A mouse callout's screen point (session format 1.1).
+fn at(mut c: Callout, x: i32, y: i32, monitor: &str) -> Callout {
+    c.x = Some(x);
+    c.y = Some(y);
+    c.monitor = Some(monitor.to_string());
+    c
+}
+
+fn pointer(
+    t_ms: u64,
+    kind: PointerKind,
+    button: Option<MouseButton>,
+    x: i32,
+    y: i32,
+) -> PointerEntry {
+    PointerEntry {
+        t_ms,
+        kind,
+        button,
+        x,
+        y,
+        dx: 0,
+        dy: 0,
+        mods: Vec::new(),
     }
 }
 
@@ -82,6 +113,7 @@ const STARTED_UNIX_MS: u64 = 1_790_863_200_000;
 /// renamed by the user and one after the recording.
 fn obs_session() -> Session {
     let mut log = SessionLog::start("2026-10-01T14-00-00Z", STARTED_UNIX_MS, 5_000);
+    log.capture_pointer();
     log.record_event(6_000, RecordEvent::Started);
     log.clock_sample(6_500, 0, false); // output not active yet: ignored
     log.add_marker(6_200, Some("Intro")).unwrap();
@@ -130,19 +162,56 @@ fn obs_session() -> Session {
     ));
     log.clock_sample(17_000, 11_030, false);
     log.add_marker(20_000, Some("Sketch")).unwrap();
-    log.add_callout(&callout(
-        4,
-        CalloutKind::Mouse,
-        vec![vec![
-            modifier("Ctrl"),
-            chip("MiddleDrag", "Middle drag", ChipKind::Mouse),
-        ]],
-        None,
-        1,
-        Some("Fixture pan"),
-        None,
-        20_000,
-        21_000,
+    log.add_pointer(&[
+        pointer(19_000, PointerKind::Move, None, -1700, 400),
+        pointer(
+            20_000,
+            PointerKind::Down,
+            Some(MouseButton::Middle),
+            -1600,
+            420,
+        ),
+        pointer(
+            20_100,
+            PointerKind::DragStart,
+            Some(MouseButton::Middle),
+            -1600,
+            420,
+        ),
+        pointer(20_500, PointerKind::Move, None, -1450, 380),
+        pointer(
+            21_000,
+            PointerKind::DragEnd,
+            Some(MouseButton::Middle),
+            -1400,
+            370,
+        ),
+        pointer(
+            21_000,
+            PointerKind::Up,
+            Some(MouseButton::Middle),
+            -1400,
+            370,
+        ),
+    ]);
+    log.add_callout(&at(
+        callout(
+            4,
+            CalloutKind::Mouse,
+            vec![vec![
+                modifier("Ctrl"),
+                chip("MiddleDrag", "Middle drag", ChipKind::Mouse),
+            ]],
+            None,
+            1,
+            Some("Fixture pan"),
+            None,
+            20_000,
+            21_000,
+        ),
+        -1600,
+        420,
+        r"\\.\DISPLAY2",
     ));
     log.add_callout(&callout(
         5,
@@ -206,16 +275,24 @@ fn obs_session() -> Session {
     log.clock_sample(51_000, 35_020, false);
     log.add_marker(52_000, None).unwrap();
     log.add_callout(&save(9, 60_000, 60_400, 2));
-    log.add_callout(&callout(
-        10,
-        CalloutKind::Mouse,
-        vec![vec![chip("WheelUp", "Wheel up", ChipKind::Mouse)]],
-        None,
-        5,
-        Some("Fixture zoom"),
-        None,
-        70_000,
-        71_000,
+    let mut wheel = pointer(70_000, PointerKind::Wheel, None, 960, 540);
+    wheel.dy = 120;
+    log.add_pointer(&[wheel]);
+    log.add_callout(&at(
+        callout(
+            10,
+            CalloutKind::Mouse,
+            vec![vec![chip("WheelUp", "Wheel up", ChipKind::Mouse)]],
+            None,
+            5,
+            Some("Fixture zoom"),
+            None,
+            70_000,
+            71_000,
+        ),
+        960,
+        540,
+        r"\\.\DISPLAY1",
     ));
     log.add_marker(80_000, None).unwrap();
     log.rename_marker(3, "Wrap up").unwrap();

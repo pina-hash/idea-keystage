@@ -43,6 +43,7 @@
 		"allow-overlay-hello",
 		"allow-hotkeys-capture",
 		"allow-hotkeys-status",
-		"allow-platform-info"
+		"allow-platform-info",
+		"allow-update-check"
 	]
 }

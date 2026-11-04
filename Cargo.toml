@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/keystage-core", "crates/keystage-session", "crates/keystage-server", "crates/keystage-obs", "src-tauri"]
+members = ["crates/keystage-core", "crates/keystage-session", "crates/keystage-server", "crates/keystage-obs", "crates/keystage-update", "src-tauri"]
 # `cargo test` on Linux builds only the platform-independent crates.
-default-members = ["crates/keystage-core", "crates/keystage-session", "crates/keystage-server", "crates/keystage-obs"]
+default-members = ["crates/keystage-core", "crates/keystage-session", "crates/keystage-server", "crates/keystage-obs", "crates/keystage-update"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.90"
 publish = false
@@ -16,6 +16,7 @@ keystage-core = { path = "crates/keystage-core" }
 keystage-session = { path = "crates/keystage-session" }
 keystage-server = { path = "crates/keystage-server" }
 keystage-obs = { path = "crates/keystage-obs" }
+keystage-update = { path = "crates/keystage-update" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 thiserror = "=2.0.21"
@@ -33,6 +34,8 @@ crossbeam-channel = "=0.5.17"
 crossbeam-queue = "=0.3.14"
 parking_lot = "=0.12.5"
 mime_guess = "=2.0.5"
+# HTTPS for the update check only (rustls with webpki roots, no gzip, no cookies).
+ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
 rodio = { version = "=0.22.2", default-features = false, features = ["playback", "wav"] }
 windows = "=0.62.2"
 windows-core = "=0.62.2"

@@ -564,6 +564,9 @@ mod tests {
             profile: None,
             t_ms: t,
             updated_ms: upd,
+            x: None,
+            y: None,
+            monitor: None,
         }
     }
 
@@ -637,6 +640,9 @@ mod tests {
             profile: Some("solidworks".into()),
             t_ms: t,
             updated_ms: upd,
+            x: None,
+            y: None,
+            monitor: None,
         }
     }
 

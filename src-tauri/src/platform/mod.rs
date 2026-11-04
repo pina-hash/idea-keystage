@@ -226,6 +226,14 @@ pub fn os_build() -> Option<u32> {
     backend::os_build()
 }
 
+/// Starts a program with a parameter string and returns at once (the
+/// update installer). An error off Windows.
+///
+/// Threading: any thread.
+pub fn launch(exe: &std::path::Path, parameters: &str) -> Result<(), PlatformError> {
+    backend::launch(exe, parameters)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -18,6 +18,7 @@ pub mod ipc;
 pub mod keys;
 pub mod legends;
 pub mod modifiers;
+pub mod pointer;
 pub mod processor;
 pub mod profile;
 pub mod protocol;

@@ -133,3 +133,33 @@ pub fn dpapi_unprotect(blob_b64: &str) -> Result<String, PlatformError> {
 pub fn os_build() -> Option<u32> {
     os::build()
 }
+
+/// Starts `exe` with `parameters` through `ShellExecuteW` ("open", shown
+/// normally), the call the official Tauri updater uses for its NSIS
+/// installer. `ShellExecuteW` returns a value greater than 32 on success.
+pub fn launch(exe: &std::path::Path, parameters: &str) -> Result<(), PlatformError> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::{w, PCWSTR};
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let file: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
+    let params: Vec<u16> = parameters.encode_utf16().chain(Some(0)).collect();
+    // SAFETY: both buffers are NUL-terminated UTF-16 that outlive the call;
+    // no window handle and no working directory are passed.
+    let r = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            PCWSTR(file.as_ptr()),
+            PCWSTR(params.as_ptr()),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    if r.0 as isize > 32 {
+        Ok(())
+    } else {
+        Err(PlatformError::Unsupported)
+    }
+}

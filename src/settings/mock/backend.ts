@@ -549,6 +549,16 @@ export function createMockBackend(opts: MockOptions): MockBackend {
 				});
 			case 'platform_info':
 				return { os_build: 26100, exclude_from_capture_supported: true };
+			case 'update_check': {
+				status.update = {
+					state: 'up_to_date',
+					message: `IDEA Keystage is up to date (${MOCK_VERSION}).`,
+					version: MOCK_VERSION,
+					checked: new Date(now()).toISOString(),
+				};
+				statusChanged();
+				return currentStatus();
+			}
 		}
 	}
 

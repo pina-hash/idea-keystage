@@ -1,16 +1,16 @@
-# Session file format: `keystage.session/1`
+# Session file format: `keystage.session/1.1`
 
 A Session Log is a record of what the overlay showed while you recorded. This page documents its JSON file, which is also what the JSON export writes. Source of truth: `crates/keystage-session/src/session.rs` (`Session`), `src/clock.rs` (`RecordingLog`, `RecordingClock`), `src/export.rs`, the core's `Callout` (`crates/keystage-core/src/event.rs`), and the golden file `crates/keystage-session/tests/golden/obs.json.golden` (a complete example).
 
 ## What a session file is
 
-A Session Log exists only when you start one: with the session hotkey (`Ctrl+Alt+Shift+L` by default), the tray, the settings window, or automatically when OBS starts recording, once Connect to OBS is turned on ("Session log with each recording", `obs.auto_session`, is on by default; a log then starts when OBS starts recording and stops when it stops). It holds exactly the `callout` messages the overlay displayed (the final state of each), the chapter markers, and what OBS reported about the recording. Nothing else: no key events, no mouse positions, no app names, nothing typed while the overlay was paused or hidden for a password field or an excluded app.
+A Session Log exists only when you start one: with the session hotkey (`Ctrl+Alt+Shift+L` by default), the tray, the settings window, or automatically when OBS starts recording, once Connect to OBS is turned on ("Session log with each recording", `obs.auto_session`, is on by default; a log then starts when OBS starts recording and stops when it stops). It holds exactly the `callout` messages the overlay displayed (the final state of each, mouse callouts with the screen point they happened at), the chapter markers, and what OBS reported about the recording. With **Tutorial capture: log every click** on (Sessions page, `session.tutorial_capture`, off by default) a session started then also holds `pointer`: every mouse press, release, double click, drag and wheel step with its position, and the cursor path at up to 30 samples a second, whether or not the overlay showed them. Nothing else: no key events outside callouts, no app names, nothing at all (callouts or pointer entries) while the overlay was paused or hidden for a password field, an excluded app, a locked session or an unidentified foreground.
 
 The app writes the file only when a session stops (with `session.autosave` on, the default) and on Quit for a running session, as `<id>.json` in the sessions folder (`Documents\IDEA Keystage\Sessions` unless `session.folder` names another). The file is pretty-printed UTF-8 JSON without a byte order mark, written to a temporary file and renamed over the target. With autosave off, a stopped session stays in memory for the rest of the run only. The JSON export (`session_export` with `format: "json"`) is the same document.
 
 ## Versioning
 
-- `schema` is `"keystage.session/<major>[.<minor>]"`. This version writes `keystage.session/1`.
+- `schema` is `"keystage.session/<major>[.<minor>]"`. This version (app 0.2.0) writes `keystage.session/1.1`. Version 1.1 added the callout fields `x`, `y` and `monitor` and the top-level `pointer` and `pointer_truncated`; app 0.1.0 wrote `keystage.session/1` and reads 1.1 files: it keeps `pointer` as an unknown field, but a marker rename saved by 0.1.0 drops the callout points.
 - A reader accepts `keystage.session/1` and any `keystage.session/1.x`. A different major version, or a missing `schema`, is refused with: the session file uses format "<found>", which this version cannot read.
 - Minor versions only add fields. Unknown top-level fields are kept on load and written back on save, so renaming a marker in an older app never drops data written by a newer one.
 - Every field except `schema`, `id`, `started`, `started_unix_ms` and `start_ms` may be missing and takes its default.
@@ -18,21 +18,23 @@ The app writes the file only when a session stops (with `session.autosave` on, t
 
 ## Top-level fields
 
-| Field             | Type            | Meaning                                                                                                                                        |
-| ----------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schema`          | string          | `"keystage.session/1"`                                                                                                                         |
-| `id`              | string          | Session id, safe as a file name. The default is the UTC start time, `2026-10-01T14-03-22Z`. The app names the file `<id>.json`.                |
-| `app`             | object          | `{ "name": "IDEA Keystage", "version": "0.1.0" }`, the app that wrote it                                                                       |
-| `started`         | string          | Start, ISO 8601 UTC with milliseconds: `2026-10-01T14:00:00.000Z`                                                                              |
-| `started_unix_ms` | integer         | Start, Unix milliseconds                                                                                                                       |
-| `ended`           | string or null  | Stop, ISO 8601 UTC; null while the session runs (or if the app ended without stopping it)                                                      |
-| `ended_unix_ms`   | integer or null | Stop, Unix milliseconds                                                                                                                        |
-| `start_ms`        | integer         | Start on the app's monotonic clock. Every `t_ms` in the file uses this clock, in milliseconds. Its zero is arbitrary; only differences matter. |
-| `end_ms`          | integer or null | Stop on the monotonic clock                                                                                                                    |
-| `recording`       | object          | What OBS reported (below). Empty lists without OBS.                                                                                            |
-| `markers`         | array           | Chapter markers, in time order (below)                                                                                                         |
-| `callouts`        | array           | The displayed callouts, final state of each, in the order they first appeared (below)                                                          |
-| `truncated`       | boolean         | True when the 100,000 callout limit was reached and later new callouts were dropped                                                            |
+| Field               | Type              | Meaning                                                                                                                                        |
+| ------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema`            | string            | `"keystage.session/1.1"`                                                                                                                       |
+| `id`                | string            | Session id, safe as a file name. The default is the UTC start time, `2026-10-01T14-03-22Z`. The app names the file `<id>.json`.                |
+| `app`               | object            | `{ "name": "IDEA Keystage", "version": "0.2.0" }`, the app that wrote it                                                                       |
+| `started`           | string            | Start, ISO 8601 UTC with milliseconds: `2026-10-01T14:00:00.000Z`                                                                              |
+| `started_unix_ms`   | integer           | Start, Unix milliseconds                                                                                                                       |
+| `ended`             | string or null    | Stop, ISO 8601 UTC; null while the session runs (or if the app ended without stopping it)                                                      |
+| `ended_unix_ms`     | integer or null   | Stop, Unix milliseconds                                                                                                                        |
+| `start_ms`          | integer           | Start on the app's monotonic clock. Every `t_ms` in the file uses this clock, in milliseconds. Its zero is arbitrary; only differences matter. |
+| `end_ms`            | integer or null   | Stop on the monotonic clock                                                                                                                    |
+| `recording`         | object            | What OBS reported (below). Empty lists without OBS.                                                                                            |
+| `markers`           | array             | Chapter markers, in time order (below)                                                                                                         |
+| `callouts`          | array             | The displayed callouts, final state of each, in the order they first appeared (below)                                                          |
+| `truncated`         | boolean           | True when the 100,000 callout limit was reached and later new callouts were dropped                                                            |
+| `pointer`           | array, optional   | 1.1. Tutorial capture entries in time order (below). Absent when the session was recorded without tutorial capture.                            |
+| `pointer_truncated` | boolean, optional | 1.1. Present and true when the 500,000 entry limit was reached and later entries were dropped                                                  |
 
 ## `markers[]`
 
@@ -47,20 +49,39 @@ At most 1,000 markers. Markers always go to the Session Log; when OBS is connect
 
 Each entry is the wire `callout` object of protocol v1 (`docs/ARCHITECTURE.md` section 5), exactly as the overlay received it in its final state:
 
-| Field        | Type                     | Meaning                                                                                                                                               |
-| ------------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`         | integer                  | Callout id (the upsert key on the wire)                                                                                                               |
-| `kind`       | string                   | `combo`, `key`, `text`, `chord`, `mouse` or `masked`                                                                                                  |
-| `steps`      | array of arrays of chips | At least one step. A chip is `{ "key": canonical name or mouse action id, "label": display label in words, "kind": "modifier" or "key" or "mouse" }`. |
-| `text`       | string or null           | Typed text of a `text` run (SolidWorks typed values such as `25.4`); null otherwise                                                                   |
-| `count`      | integer                  | Repeat count; 1 means no badge                                                                                                                        |
-| `caption`    | string or null           | Command name from the active profile (the sourced SolidWorks data or your own import)                                                                 |
-| `context`    | string or null           | Where the caption applies, from the profile                                                                                                           |
-| `profile`    | string or null           | Profile id (`solidworks`, `general`, or a user profile id)                                                                                            |
-| `t_ms`       | integer                  | Monotonic time the callout first appeared                                                                                                             |
-| `updated_ms` | integer                  | Monotonic time of its last update                                                                                                                     |
+| Field        | Type                     | Meaning                                                                                                                                                                                                                                                                                                                                                       |
+| ------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`         | integer                  | Callout id (the upsert key on the wire)                                                                                                                                                                                                                                                                                                                       |
+| `kind`       | string                   | `combo`, `key`, `text`, `chord`, `mouse` or `masked`                                                                                                                                                                                                                                                                                                          |
+| `steps`      | array of arrays of chips | At least one step. A chip is `{ "key": canonical name or mouse action id, "label": display label in words, "kind": "modifier" or "key" or "mouse" }`.                                                                                                                                                                                                         |
+| `text`       | string or null           | Typed text of a `text` run (SolidWorks typed values such as `25.4`); null otherwise                                                                                                                                                                                                                                                                           |
+| `count`      | integer                  | Repeat count; 1 means no badge                                                                                                                                                                                                                                                                                                                                |
+| `caption`    | string or null           | Command name from the active profile (the sourced SolidWorks data or your own import)                                                                                                                                                                                                                                                                         |
+| `context`    | string or null           | Where the caption applies, from the profile                                                                                                                                                                                                                                                                                                                   |
+| `profile`    | string or null           | Profile id (`solidworks`, `general`, or a user profile id)                                                                                                                                                                                                                                                                                                    |
+| `t_ms`       | integer                  | Monotonic time the callout first appeared                                                                                                                                                                                                                                                                                                                     |
+| `updated_ms` | integer                  | Monotonic time of its last update                                                                                                                                                                                                                                                                                                                             |
+| `x`, `y`     | integer, optional        | 1.1, mouse callouts only. Where the pointer was at `updated_ms`, in physical screen pixels of the virtual screen (the primary monitor's top left is 0, 0; a monitor to its left or above has negative coordinates): the press point of a click, double click, drag or gesture, the cursor of a wheel step. A repeat (`count` above 1) moves it to the newest. |
+| `monitor`    | string, optional         | 1.1, with `x` and `y`. The device name of the monitor holding that point (`\\.\DISPLAY1`), as `list_monitors` and `host.monitor` name it. Absent when the point is on no known monitor.                                                                                                                                                                       |
+
+The wire `callout` message never carries `x`, `y` or `monitor`; only the Session Log keeps them.
 
 Identity inside a file is the pair `(id, t_ms)`: if the app rebuilt its processor and ids started over, a later callout with a reused id is a separate entry. Masked typing (`kind: "masked"`) is stored as displayed ("Typing", no key identity, `text` null).
+
+## `pointer[]` (1.1, tutorial capture)
+
+Written by `keystage-core/src/pointer.rs`, independent of what the overlay displays (a plain left click makes no callout by default, and it is a `down` and an `up` here). The same drag threshold (4 px) and double click rule (500 ms, 4 px) as the overlay apply.
+
+| Field      | Type              | Meaning                                                                                                                                                                                                                        |
+| ---------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `t_ms`     | integer           | Monotonic time, the clock of every `t_ms` in the file                                                                                                                                                                          |
+| `kind`     | string            | `down`, `up`, `double_click` (right after the second `down`), `drag_start` (a held button passed the drag threshold; `x`, `y` are where it was pressed), `drag_end` (right before the `up` that ended a drag), `wheel`, `move` |
+| `button`   | string, optional  | Button entries: `left`, `right`, `middle`, `x1`, `x2`                                                                                                                                                                          |
+| `x`, `y`   | integer           | Physical screen pixels, virtual-screen coordinates (as callouts)                                                                                                                                                               |
+| `dx`, `dy` | integer, optional | `wheel` only, raw `WHEEL_DELTA` units (+120 is one notch up or right); absent when 0                                                                                                                                           |
+| `mods`     | array, optional   | Modifiers held at a press, release or wheel step: `ctrl`, `shift`, `alt`, `win`                                                                                                                                                |
+
+`move` entries are at least 34 ms apart (at most 30 a second) and only when the position changed. No entry is made while the overlay is paused or hidden for a password field, an excluded app, a locked session or an unidentified foreground, and a button held when hiding began is forgotten (its release afterward is a plain `up`). Key presses never appear here.
 
 ## `recording`
 
@@ -92,13 +113,13 @@ All four are made from this file; the app writes the text to the path you choose
 
 ## Example
 
-Abbreviated from `crates/keystage-session/tests/golden/obs.json.golden`. The captions there are synthetic test text, not SolidWorks data.
+Abbreviated from `crates/keystage-session/tests/golden/obs.json.golden` (which also holds a mouse callout with `x`, `y`, `monitor` and a `pointer` array). The captions there are synthetic test text, not SolidWorks data.
 
 ```json
 {
-	"schema": "keystage.session/1",
+	"schema": "keystage.session/1.1",
 	"id": "2026-10-01T14-00-00Z",
-	"app": { "name": "IDEA Keystage", "version": "0.1.0" },
+	"app": { "name": "IDEA Keystage", "version": "0.2.0" },
 	"started": "2026-10-01T14:00:00.000Z",
 	"started_unix_ms": 1790863200000,
 	"ended": "2026-10-01T14:01:35.000Z",

@@ -5,15 +5,18 @@
 //! stops and `settings.session.autosave` is on. With autosave off the stopped
 //! session stays in memory for this run so it can still be exported.
 //!
-//! Privacy: a session holds only the callouts that were displayed and the
-//! chapter markers; nothing here logs their content. Session ids that come
+//! Privacy: a session holds only the callouts that were displayed, the
+//! chapter markers and, with tutorial capture on, the pointer entries the
+//! processor logged while nothing was suppressed; nothing here logs their
+//! content. Session ids that come
 //! from the settings window are checked to be plain file names, so a request
 //! can never reach outside the sessions folder.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use keystage_core::ipc::{ExportFormat, SessionStatus, SessionSummary};
+use keystage_core::ipc::{ExportFormat, Monitor, SessionStatus, SessionSummary};
+use keystage_core::pointer::PointerEntry;
 use keystage_core::protocol::SessionState;
 use keystage_core::Callout;
 use keystage_session::{ExportOptions, RecordEvent, Session, SessionLog};
@@ -35,6 +38,27 @@ pub fn is_safe_id(id: &str) -> bool {
         && id
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+}
+
+/// The device name of the monitor holding the physical point `(x, y)`.
+pub fn monitor_at(monitors: &[Monitor], x: i32, y: i32) -> Option<String> {
+    monitors
+        .iter()
+        .find(|m| {
+            let (x0, y0) = (i64::from(m.x), i64::from(m.y));
+            let (px, py) = (i64::from(x), i64::from(y));
+            px >= x0 && py >= y0 && px < x0 + i64::from(m.width) && py < y0 + i64::from(m.height)
+        })
+        .map(|m| m.id.clone())
+}
+
+/// The callout as the Session Log stores it: a mouse callout gets the
+/// monitor its point is on.
+pub fn with_monitor(c: &Callout, monitors: &[Monitor]) -> Option<Callout> {
+    let (x, y) = (c.x?, c.y?);
+    let mut out = c.clone();
+    out.monitor = monitor_at(monitors, x, y);
+    Some(out)
 }
 
 /// How a session started; OBS only stops the sessions it started.
@@ -97,6 +121,7 @@ impl SessionManager {
         started_unix_ms: u64,
         t_ms: u64,
         origin: Origin,
+        capture: bool,
         taken: &dyn Fn(&str) -> bool,
     ) -> bool {
         if self.active.is_some() {
@@ -110,8 +135,26 @@ impl SessionManager {
             id = format!("{base}-{n}");
             n += 1;
         }
-        self.active = Some((SessionLog::start(id, started_unix_ms, t_ms), origin));
+        let mut log = SessionLog::start(id, started_unix_ms, t_ms);
+        if capture {
+            log.capture_pointer();
+        }
+        self.active = Some((log, origin));
         true
+    }
+
+    /// True while the running session logs every click (tutorial capture).
+    pub fn captures_pointer(&self) -> bool {
+        self.active
+            .as_ref()
+            .is_some_and(|(l, _)| l.captures_pointer())
+    }
+
+    /// Tutorial capture entries (only into a running session that takes them).
+    pub fn on_pointer(&mut self, entries: &[PointerEntry]) {
+        if let Some((log, _)) = self.active.as_mut() {
+            log.add_pointer(entries);
+        }
     }
 
     /// Stops the running session and hands it over for saving.
@@ -374,12 +417,12 @@ impl Sessions {
         self.inner.lock().folder().to_path_buf()
     }
 
-    pub fn start(&self, started_unix_ms: u64, t_ms: u64, origin: Origin) -> bool {
+    pub fn start(&self, started_unix_ms: u64, t_ms: u64, origin: Origin, capture: bool) -> bool {
         let folder = self.folder();
         let taken = |id: &str| folder.join(format!("{id}.json")).exists();
         self.inner
             .lock()
-            .start(started_unix_ms, t_ms, origin, &taken)
+            .start(started_unix_ms, t_ms, origin, capture, &taken)
     }
 
     /// Stops and saves. `Ok(None)` when nothing ran or autosave is off.
@@ -499,6 +542,9 @@ mod tests {
             profile: Some("solidworks".into()),
             t_ms: t,
             updated_ms: t,
+            x: None,
+            y: None,
+            monitor: None,
         }
     }
 
@@ -524,8 +570,8 @@ mod tests {
     fn start_record_stop_save_list_get() {
         let (_d, m) = mgr(true);
         assert!(m.lock().status().is_none());
-        assert!(m.start(T0, 1000, Origin::User));
-        assert!(!m.start(T0, 1000, Origin::User), "one at a time");
+        assert!(m.start(T0, 1000, Origin::User, false));
+        assert!(!m.start(T0, 1000, Origin::User, false), "one at a time");
         m.lock().on_callout(&callout(1, 1100));
         m.lock().on_callout(&callout(2, 1200));
         assert_eq!(
@@ -555,7 +601,7 @@ mod tests {
     #[test]
     fn rename_export_delete() {
         let (d, m) = mgr(true);
-        m.start(T0, 0, Origin::User);
+        m.start(T0, 0, Origin::User, false);
         m.lock().on_callout(&callout(1, 100));
         m.lock().add_marker(200, None).expect("m");
         m.stop(T0 + 1000, 1000).expect("stop");
@@ -586,7 +632,7 @@ mod tests {
     #[test]
     fn autosave_off_keeps_the_session_in_memory() {
         let (_d, m) = mgr(false);
-        m.start(T0, 0, Origin::Obs);
+        m.start(T0, 0, Origin::Obs, false);
         assert_eq!(m.lock().origin(), Some(Origin::Obs));
         m.lock().on_callout(&callout(1, 10));
         assert_eq!(m.stop(T0 + 100, 100).expect("ok"), None);
@@ -603,7 +649,7 @@ mod tests {
     #[test]
     fn the_running_session_is_readable_but_not_deletable() {
         let (_d, m) = mgr(true);
-        m.start(T0, 0, Origin::User);
+        m.start(T0, 0, Origin::User, false);
         m.lock().add_marker(10, None).expect("m");
         let id = m.lock().status().expect("s").id;
         assert_eq!(m.get(&id).expect("g").markers.len(), 1);
@@ -614,9 +660,9 @@ mod tests {
     #[test]
     fn ids_are_unique_within_a_second() {
         let (_d, m) = mgr(true);
-        m.start(T0, 0, Origin::User);
+        m.start(T0, 0, Origin::User, false);
         m.stop(T0 + 10, 10).expect("s");
-        m.start(T0, 20, Origin::User);
+        m.start(T0, 20, Origin::User, false);
         m.stop(T0 + 30, 30).expect("s");
         let list = m.list(40);
         assert_eq!(list.len(), 2);
@@ -639,7 +685,7 @@ mod tests {
         fs::write(&blocker, "x").expect("w");
         // The folder path runs through an existing file, so the save fails.
         let m = Sessions::new(blocker.join("Sessions"), true);
-        m.start(T0, 0, Origin::User);
+        m.start(T0, 0, Origin::User, false);
         let e = m.stop(T0 + 10, 10).expect_err("cannot save");
         assert!(e.starts_with("The session log could not be saved"), "{e}");
         assert_eq!(m.list(20).len(), 1);
@@ -652,5 +698,67 @@ mod tests {
             "A chapter name cannot be empty."
         );
         assert_eq!(sentence("Done."), "Done.");
+    }
+
+    #[test]
+    fn tutorial_capture_rides_on_the_session_it_was_started_with() {
+        use keystage_core::pointer::{PointerEntry, PointerKind};
+        let entry = PointerEntry {
+            t_ms: 1100,
+            kind: PointerKind::Down,
+            button: Some(keystage_core::MouseButton::Left),
+            x: 4,
+            y: 5,
+            dx: 0,
+            dy: 0,
+            mods: Vec::new(),
+        };
+        let (_d, m) = mgr(true);
+        m.start(T0, 1000, Origin::User, false);
+        assert!(!m.lock().captures_pointer());
+        m.lock().on_pointer(std::slice::from_ref(&entry));
+        let path = m.stop(T0 + 1000, 2000).expect("stop").expect("saved");
+        let s = Session::load(&path).expect("load");
+        assert_eq!(s.pointer, None);
+        m.start(T0 + 5000, 3000, Origin::User, true);
+        assert!(m.lock().captures_pointer());
+        m.lock().on_pointer(std::slice::from_ref(&entry));
+        let path = m.stop(T0 + 6000, 4000).expect("stop").expect("saved");
+        let s = Session::load(&path).expect("load");
+        assert_eq!(s.pointer, Some(vec![entry]));
+        assert!(!m.lock().captures_pointer(), "nothing runs");
+    }
+
+    #[test]
+    fn points_are_placed_on_their_monitor() {
+        let mon = |id: &str, x, y, w, h| Monitor {
+            id: id.into(),
+            name: id.into(),
+            x,
+            y,
+            width: w,
+            height: h,
+            scale: 1.0,
+            primary: x == 0,
+        };
+        let ms = vec![
+            mon(r"\\.\DISPLAY1", 0, 0, 1920, 1080),
+            mon(r"\\.\DISPLAY2", -2560, -200, 2560, 1440),
+        ];
+        assert_eq!(monitor_at(&ms, 0, 0).as_deref(), Some(r"\\.\DISPLAY1"));
+        assert_eq!(
+            monitor_at(&ms, 1919, 1079).as_deref(),
+            Some(r"\\.\DISPLAY1")
+        );
+        assert_eq!(monitor_at(&ms, 1920, 0), None, "right edge is outside");
+        assert_eq!(monitor_at(&ms, -1, -200).as_deref(), Some(r"\\.\DISPLAY2"));
+        assert_eq!(monitor_at(&ms, -1, -201), None);
+        let mut c = callout(1, 100);
+        assert!(with_monitor(&c, &ms).is_none(), "no point, nothing to add");
+        c.x = Some(-100);
+        c.y = Some(300);
+        let placed = with_monitor(&c, &ms).expect("placed");
+        assert_eq!(placed.monitor.as_deref(), Some(r"\\.\DISPLAY2"));
+        assert_eq!((placed.x, placed.y), (Some(-100), Some(300)));
     }
 }

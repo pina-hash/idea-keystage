@@ -269,7 +269,7 @@ Decisions made while building, with the reason for each. Facts from code are as 
 - Identifier `com.ideabosco.keystage`, product name "IDEA Keystage", binary `idea-keystage`, publisher "IDEA Engineering Pathway", version 0.1.0 (one version in `package.json`, `Cargo.toml` and `tauri.conf.json`, checked by `tests/unit/versions.test.ts`). Settings live in `%APPDATA%\com.ideabosco.keystage`, the log in `%LOCALAPPDATA%\com.ideabosco.keystage\logs`, sessions in `Documents\IDEA Keystage\Sessions`.
 - NSIS only, `installMode: currentUser` (no administrator rights, installs under `%LOCALAPPDATA%`), `webviewInstallMode: downloadBootstrapper` silent (the installer fetches WebView2 only if it is missing). English only.
 - The release workflow runs on a `v*` tag, runs the whole CI on that commit first, refuses a tag that differs from `tauri.conf.json`, builds with `--locked` and no cache, and publishes `IDEA-Keystage_<version>_x64-setup.exe`, `IDEA-Keystage_<version>_x64-portable.exe` (the plain release exe) and `SHA256SUMS.txt`. Tauri names the installer with a space, which GitHub rewrites in asset names, so it is renamed.
-- No code signing (no certificate) and no updater: Tauri's updater "needs a signature to verify that the update is from a trusted source. This cannot be disabled." (https://v2.tauri.app/plugin/updater/, read 2026-10-01), and an update check would break privacy rule 7. Both are in `docs/ROADMAP.md`.
+- No code signing (no certificate). Version 0.1.0 had no updater, because privacy rule 7 then forbade any update check; 0.2.0 has its own (item 9).
 - The Rust toolchain is pinned to 1.97.0 in both workflows, because Rust 1.98.0 added a clippy lint that fails `-D warnings` on unrelated code (CI run 10, 2026-10-01).
 
 **Crates and hosts**
@@ -307,6 +307,35 @@ Decisions made while building, with the reason for each. Facts from code are as 
 **Known item not fixed**
 
 - After a password hold is discarded, an odd number of Caps Lock toggles typed inside it can leave the letter case of later typed-value readouts inverted until the next modifier resync. Display only, not privacy.
+
+## 0.2.0 (2026-11-04)
+
+### 9. Automatic updates
+
+**Source: Mr. Pina, 2026-11-04, in his words: "include an update for idea key stage to automatically update, so that doesn't have to be redownloaded manually every time. It should just pull the automatic update every time."** He authorized the change to privacy rule 7 that this needs.
+
+**Decision: the app checks this repository's GitHub releases itself, verifies the installer against the release's `SHA256SUMS.txt`, and runs the Tauri NSIS installer in passive update mode. The official `tauri-plugin-updater` is not used.** The plugin verifies a minisign signature against a public key compiled into the app, and its signature "cannot be disabled" (https://v2.tauri.app/plugin/updater/, read 2026-10-01); `tauri-plugin-updater` 2.14.1's `updater.rs` (crates.io tarball, SHA-256 `d957abbcb3f9f6c76d22a3a0f012f30880640d0bccb5634d2b12a9937e4c872b`, matched against the index, read 2026-11-04) calls `verify_signature` before every install. That needs a private signing key kept as a release secret, which this repository does not have. The release workflow already publishes `SHA256SUMS.txt`, so the custom path needs no secret.
+
+- **Rule 7 is amended in place** (ARCHITECTURE.md section 8, CLAUDE.md): exactly the HTTPS GET requests for the latest release, its installer and its checksum list are allowed, plus the existing OBS socket. They carry a fixed user agent and nothing about the user. GitHub still sees the network address, as with any download.
+- **Switch.** "Check for updates automatically" (`updates.auto`), default on as he asked; Check now in the settings window and Check for updates in the tray work with it off.
+- **What the checksum proves and what it does not.** It catches a truncated, corrupted or swapped download. It does not prove authorship beyond HTTPS to `github.com` and the repository account, because the checksum list comes from the same release; anyone who can publish releases can publish both. Exact download addresses (`https://github.com/pina-hash/idea-keystage/releases/download/<tag>/<name>`), `https_only` redirects, size limits and a second hash from disk before the launch narrow the rest. A signature stays on the roadmap.
+- **Never during a recording.** A downloaded update waits while a Session Log or an OBS recording runs, and installs within 5 s of it stopping.
+- **Installer switches, verified in source, not assumed.** `@tauri-apps/cli` 2.12.1 compiles its NSIS installer with tauri-bundler `=2.10.1` (tauri-cli's crates.io index entry). Its template `src/bundle/windows/nsis/installer.nsi` (crate tarball SHA-256 `e3e621d2f7624f024a023ae513d071e7b0305fb9a7f51cb2ae5b35c0b62472be`, matched against the index, read 2026-11-04) reads `/P` (`PassiveMode`: no pages; `CheckIfAppIsRunning` in `utils.nsh` closes a running app with `RmShutdown(RmForceShutdown)` without asking when passive or silent), `/NS` (no shortcuts), `/UPDATE` (`UpdateMode`: `PageLeaveReinstall` skips the uninstall, `CreateOrUpdateDesktopShortcut` returns early, WebView2 install is skipped), and, in `.onInstSuccess`, `/R` only when passive or silent, then `nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe"` with the text after `/ARGS`. `/S` is the NSIS silent flag. The plugin's `config.rs` maps its default `Passive` mode to `/P`, adds `/UPDATE` and, to restart, `/R` and `/ARGS`, and starts the installer with `ShellExecuteW` (`"open"`, `SW_SHOW`) before `std::process::exit(0)`. **This app uses the same set: `/P /UPDATE /R /ARGS --updated`, through `ShellExecuteW` (`"open"`, `SW_SHOWNORMAL`), then quits normally.** Passive rather than silent, because a passive installer that cannot close the app shows a message (`Abort $R3`), where a silent one only writes to a console that is not there.
+- **Portable and development copies** (no `uninstall.exe` beside the exe) only report that a version is available.
+- **HTTP client: `ureq` =3.4.2**, `default-features = false, features = ["rustls"]` (rustls with ring and the webpki root store; no gzip, no cookie store, no proxy features). No pinned crate did HTTPS: `reqwest` 0.13.5 is in the graph through `tauri`, without any TLS feature. 3.4.2 (2026-09-13) rather than 3.5.1 (2026-11-02, two days old). It adds `ring`, `rustls`, `rustls-webpki`, `webpki-roots`, `ureq-proto` and a few small crates (`Cargo.lock`).
+- **0.1.0 has no updater**, so moving from 0.1.0 to 0.2.0 is one manual install; every later version arrives by itself.
+- Not verified here: the real check, download, passive install and relaunch on Windows (no Windows machine in this container). The decision logic, the release choice, the checksum reading, the download and verification against a local HTTP server and the installer arguments are unit tested; the Windows code is compile-checked with cargo-xwin and built and tested on `windows-latest` in CI.
+
+### 10. Click positions and tutorial capture in the Session Log
+
+**Source: Mr. Pina's request of 2026-11-04 for automatically produced SolidWorks tutorials, and a finding from his laptop the same day: `rules.plain_left_clicks` is off by default, so plain left clicks never became callouts and never reached the Session Log.**
+
+**Decision: session format `keystage.session/1.1`, which only adds fields.**
+
+- **Mouse callouts keep their screen point**: `x`, `y` in physical pixels of the virtual screen (the press point of a click, double click, drag or gesture; the cursor of a wheel step; the newest when repeats collapse, paired with `updated_ms`), and `monitor`, the device name the shell finds for that point. The processor sets the point; `DisplayEvent::to_server_msg` strips it, so the wire protocol and its fixtures are unchanged and OBS sources never receive it.
+- **"Tutorial capture: log every click"** (`session.tutorial_capture`, off by default): a Session Log started while it is on also keeps `pointer`, every press, release, double click, drag start and end and wheel step with `x`, `y`, `t_ms`, the button and held modifiers, and a cursor sample at most every 34 ms (30 a second) while it moves, independent of what the overlay shows. It is decided per session at its start, so a later tool can start a capturing session without changing the setting.
+- **Privacy**: the processor feeds the capture log only while nothing is suppressed, so a password field, an excluded app, a locked session, an unidentified foreground and a pause all give no entries, and a button held when hiding began is forgotten. Entries go only to the running Session Log (rule 4, amended in place to name them). Keys are never captured there.
+- Not verified here: positions on a real multi-monitor Windows desktop with mixed DPI. The hooks report physical pixels because the app is per-monitor DPI aware v2 (item 2).
 
 ## Review rounds
 

@@ -1,6 +1,6 @@
 <!--
-	General: startup, this window's look, the settings file, folders, and
-	about (version and licenses).
+	General: startup, automatic updates, this window's look, the settings
+	file, folders, and about (version and licenses).
 -->
 <script lang="ts">
 	import { useController } from '../state.svelte';
@@ -54,6 +54,22 @@
 		}
 	}
 
+	const updateMessage = $derived(
+		ctl.status?.update.message || 'IDEA Keystage checks for updates shortly after it starts.'
+	);
+	const updateChecked = $derived(
+		ctl.status?.update.checked
+			? `Last checked ${new Date(ctl.status.update.checked).toLocaleString()}.`
+			: 'Not checked yet in this run.'
+	);
+	const checking = $derived(
+		ctl.status?.update.state === 'checking' || ctl.status?.update.state === 'downloading'
+	);
+
+	async function checkNow() {
+		await ctl.run(() => ctl.ipc.updateCheck());
+	}
+
 	const FONTS = [
 		{ name: 'Rajdhani', by: 'Indian Type Foundry', use: 'Text and captions' },
 		{
@@ -88,6 +104,21 @@
 				label="Open this window at start"
 				onchange={(v) => (s.startup.show_settings = v)}
 			/>
+		</Row>
+	</Card>
+
+	<Card title="Updates">
+		<Row
+			label="Check for updates automatically"
+			help="Shortly after start and every 6 hours. A new version downloads, is checked against its published checksum and installs by itself, never while a session log or an OBS recording runs."
+		>
+			<Switch bind:checked={s.updates.auto} label="Check for updates automatically" />
+		</Row>
+		<Row label="Status" help={updateChecked}>
+			<div class="st-update">
+				<span class="st-update-msg" role="status">{updateMessage}</span>
+				<Key icon="refresh" busy={checking} onclick={checkNow}>Check now</Key>
+			</div>
 		</Row>
 	</Card>
 
@@ -197,6 +228,17 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1.6rem;
+	}
+	.st-update {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+	}
+	.st-update-msg {
+		color: var(--plate-ink-2);
+		max-width: 28rem;
 	}
 	.st-about {
 		display: flex;

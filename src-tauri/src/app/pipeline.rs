@@ -47,6 +47,7 @@ use std::thread::{self, JoinHandle, Thread};
 use std::time::Duration;
 
 use crossbeam_channel::{Receiver, Sender};
+use keystage_core::pointer::PointerEntry;
 use keystage_core::profile::{select_profile, GENERAL_ID};
 use keystage_core::protocol::{Legends, ServerMsg, SolidworksMode};
 use keystage_core::{
@@ -81,6 +82,9 @@ pub enum Control {
     Settings(Arc<Settings>),
     Paused(bool),
     Monitor(Option<MonitorRect>),
+    /// Tutorial capture on or off (a Session Log that logs every click
+    /// started or stopped).
+    PointerLog(bool),
     Shutdown,
 }
 
@@ -114,6 +118,8 @@ pub trait Sink {
     /// A pass panicked. The core was rebuilt (`stopped` false) or the
     /// pipeline gave up showing input (`stopped` true).
     fn failed(&mut self, stopped: bool);
+    /// Tutorial capture entries, logged only while nothing was suppressed.
+    fn pointer(&mut self, _entries: &[PointerEntry]) {}
 }
 
 /// What the foreground says about privacy.
@@ -401,6 +407,7 @@ impl Core {
                 self.apply();
             }
             Control::Monitor(m) => self.processor.set_monitor(m),
+            Control::PointerLog(on) => self.processor.set_pointer_log(on),
             Control::Shutdown => return false,
         }
         self.flush(sink);
@@ -684,6 +691,10 @@ impl Core {
             let json: Arc<str> = Arc::from(ev.to_json());
             sink.display(&ev, json);
         }
+        let pointer = self.processor.take_pointer();
+        if !pointer.is_empty() {
+            sink.pointer(&pointer);
+        }
         let view = self.current_view();
         if self.view.as_ref() != Some(&view) {
             self.view = Some(view.clone());
@@ -705,6 +716,7 @@ struct Seen {
     builtin: Arc<Profile>,
     legends: Arc<LegendTable>,
     monitor: Option<MonitorRect>,
+    pointer: bool,
     paused: bool,
     password: bool,
     locked: bool,
@@ -718,6 +730,7 @@ impl Seen {
             builtin: core.builtin.clone(),
             legends: core.legends.clone(),
             monitor: None,
+            pointer: core.processor.pointer_log_on(),
             paused: core.gate.paused,
             password: core.gate.password,
             locked: core.gate.locked,
@@ -730,6 +743,7 @@ impl Seen {
             Change::Control(Control::Settings(s)) => self.settings = s.clone(),
             Change::Control(Control::Paused(p)) => self.paused = *p,
             Change::Control(Control::Monitor(m)) => self.monitor = *m,
+            Change::Control(Control::PointerLog(on)) => self.pointer = *on,
             Change::Control(Control::Shutdown) => self.shutdown = true,
             Change::Context(ContextEvent::Password { active }) => self.password = *active,
             Change::Context(ContextEvent::SessionLocked { .. }) => self.locked = true,
@@ -756,6 +770,7 @@ impl Seen {
         core.gate.password = self.password;
         core.gate.locked = self.locked;
         core.processor.set_monitor(self.monitor);
+        core.processor.set_pointer_log(self.pointer);
         let want = core.wanted();
         core.push(want);
         if let Some(snap) = read_modifiers() {
@@ -1015,9 +1030,13 @@ mod tests {
         views: Vec<PipelineView>,
         foreground: usize,
         failures: Vec<bool>,
+        pointer: Vec<PointerEntry>,
     }
 
     impl Sink for Rec {
+        fn pointer(&mut self, e: &[PointerEntry]) {
+            self.pointer.extend_from_slice(e);
+        }
         fn display(&mut self, ev: &DisplayEvent, json: Arc<str>) {
             self.shown.push((ev.clone(), json.to_string()));
         }
@@ -1160,6 +1179,89 @@ mod tests {
         r.clear();
         type_some(&mut c, &mut r, 6000);
         assert!(!r.callouts().is_empty());
+    }
+
+    fn clicks(c: &mut Core, r: &mut Rec, t0: u64) {
+        use keystage_core::MouseButton;
+        let mut evs = vec![
+            InputEvent::Move {
+                x: 5,
+                y: 5,
+                t_ms: t0,
+            },
+            InputEvent::Button {
+                button: MouseButton::Left,
+                down: true,
+                x: 10,
+                y: 20,
+                injected: false,
+                t_ms: t0 + 10,
+            },
+            InputEvent::Button {
+                button: MouseButton::Left,
+                down: false,
+                x: 10,
+                y: 20,
+                injected: false,
+                t_ms: t0 + 60,
+            },
+            InputEvent::Wheel {
+                dx: 0,
+                dy: 120,
+                x: 10,
+                y: 20,
+                t_ms: t0 + 100,
+            },
+        ];
+        c.on_input(&mut evs, t0 + 100, r);
+    }
+
+    #[test]
+    fn tutorial_capture_follows_every_privacy_rule() {
+        let mut c = core_with(Settings::default());
+        let mut r = Rec::default();
+        ready(&mut c, &mut r, "notepad.exe");
+        clicks(&mut c, &mut r, 100);
+        assert!(r.pointer.is_empty(), "off unless a capturing session runs");
+        c.on_control(Control::PointerLog(true), 200, &mut r);
+        clicks(&mut c, &mut r, 300);
+        assert_eq!(r.pointer.len(), 4, "{:?}", r.pointer);
+        assert!(
+            r.callouts().is_empty(),
+            "plain clicks still make no callout"
+        );
+        r.pointer.clear();
+        // Password field, locked session, unidentified foreground, excluded
+        // app, pause: no entries at all.
+        c.on_context(ContextEvent::Password { active: true }, 1000, &mut r);
+        clicks(&mut c, &mut r, 1100);
+        c.on_context(ContextEvent::Password { active: false }, 1200, &mut r);
+        c.on_context(ContextEvent::SessionLocked { t_ms: 1300 }, 1300, &mut r);
+        clicks(&mut c, &mut r, 1400);
+        c.on_context(ContextEvent::SessionUnlocked { t_ms: 1500 }, 1500, &mut r);
+        c.on_context(fg(ForegroundKind::Unknown, None), 1600, &mut r);
+        clicks(&mut c, &mut r, 1700);
+        let mut s = Settings::default();
+        s.privacy.excluded_apps.push("Notepad.exe".into());
+        c.on_control(Control::Settings(Arc::new(s)), 1800, &mut r);
+        c.on_context(fg(ForegroundKind::App, Some("notepad.exe")), 1900, &mut r);
+        clicks(&mut c, &mut r, 2000);
+        c.on_control(
+            Control::Settings(Arc::new(Settings::default())),
+            2100,
+            &mut r,
+        );
+        c.on_control(Control::Paused(true), 2200, &mut r);
+        clicks(&mut c, &mut r, 2300);
+        assert!(r.pointer.is_empty(), "{:?}", r.pointer);
+        c.on_control(Control::Paused(false), 2400, &mut r);
+        clicks(&mut c, &mut r, 9000);
+        assert!(!r.pointer.is_empty(), "shown again once nothing hides");
+        // Off with the session.
+        c.on_control(Control::PointerLog(false), 9500, &mut r);
+        r.pointer.clear();
+        clicks(&mut c, &mut r, 9600);
+        assert!(r.pointer.is_empty());
     }
 
     #[test]

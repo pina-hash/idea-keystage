@@ -265,6 +265,11 @@ pub struct SessionSettings {
     /// Where Session Logs are saved; `None` is the app's own folder.
     pub folder: Option<String>,
     pub autosave: bool,
+    /// "Tutorial capture: log every click": a Session Log started while this
+    /// is on also keeps every press, release, double click, drag, wheel step
+    /// and a 30 per second cursor path (`pointer`, session format 1.1),
+    /// whatever the overlay shows. Off by default.
+    pub tutorial_capture: bool,
 }
 
 impl Default for SessionSettings {
@@ -272,6 +277,7 @@ impl Default for SessionSettings {
         SessionSettings {
             folder: None,
             autosave: true,
+            tutorial_capture: false,
         }
     }
 }
@@ -290,6 +296,21 @@ impl Default for StartupSettings {
             start_with_windows: false,
             show_settings: true,
         }
+    }
+}
+
+/// Automatic updates (ARCHITECTURE.md section 13).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateSettings {
+    /// "Check for updates automatically": at start (after a short delay)
+    /// and every 6 hours; a newer release installs when nothing records.
+    pub auto: bool,
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        UpdateSettings { auto: true }
     }
 }
 
@@ -312,6 +333,7 @@ pub struct Settings {
     pub obs: ObsSettings,
     pub session: SessionSettings,
     pub startup: StartupSettings,
+    pub updates: UpdateSettings,
 }
 
 impl Default for Settings {
@@ -330,6 +352,7 @@ impl Default for Settings {
             obs: ObsSettings::default(),
             session: SessionSettings::default(),
             startup: StartupSettings::default(),
+            updates: UpdateSettings::default(),
         }
     }
 }
@@ -440,6 +463,7 @@ impl Settings {
         section!("obs", obs);
         section!("session", session);
         section!("startup", startup);
+        section!("updates", updates);
         issues.extend(st.validate());
         (st, issues)
     }
@@ -1144,5 +1168,32 @@ mod startup_tests {
         assert!(settings.startup.show_settings);
         let (settings, _issues) = Settings::from_json(r#"{"startup":{"show_settings":false}}"#);
         assert!(!settings.startup.show_settings);
+    }
+}
+
+#[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    #[test]
+    fn automatic_updates_default_to_on_and_survive_a_round_trip() {
+        assert!(Settings::default().updates.auto);
+        assert!(!Settings::default().session.tutorial_capture);
+        let (s, _) = Settings::from_json(r#"{"session":{"autosave":false}}"#);
+        assert!(!s.session.tutorial_capture);
+        let (s, _) = Settings::from_json(r#"{"session":{"tutorial_capture":true}}"#);
+        assert!(s.session.tutorial_capture && s.session.autosave);
+        let (s, issues) = Settings::from_json(r#"{"startup":{"show_settings":false}}"#);
+        assert!(
+            s.updates.auto,
+            "an older file without the section gets the default"
+        );
+        assert!(issues.is_empty());
+        let (s, _) = Settings::from_json(r#"{"updates":{"auto":false}}"#);
+        assert!(!s.updates.auto);
+        let (s, issues) = Settings::from_json(r#"{"updates":{"auto":"yes"}}"#);
+        assert!(s.updates.auto);
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].field, "updates");
     }
 }

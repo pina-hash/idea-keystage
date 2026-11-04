@@ -28,7 +28,7 @@ export function scenarioFrom(search: string): Scenario {
 	return (SCENARIOS as readonly string[]).includes(v ?? '') ? (v as Scenario) : 'normal';
 }
 
-export const MOCK_VERSION = '0.1.0';
+export const MOCK_VERSION = '0.2.0';
 
 /** `Status.notices` in the `notices` scenario, worded as the app shell words them. */
 export const MOCK_NOTICES: readonly string[] = [
@@ -241,6 +241,12 @@ export function mockStatus(scenario: Scenario, settings: Settings, now: number):
 			: null,
 		hook: { installed: scenario !== 'paused', dropped: 0 },
 		version: MOCK_VERSION,
+		update: {
+			state: 'up_to_date',
+			message: `IDEA Keystage is up to date (${MOCK_VERSION}).`,
+			version: MOCK_VERSION,
+			checked: isoMinutesAgo(now, 40),
+		},
 		notices: [],
 	};
 	if (scenario === 'obs-error') {

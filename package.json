@@ -1,7 +1,7 @@
 {
 	"name": "idea-keystage",
 	"private": true,
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"type": "module",
 	"description": "IDEA Keystage: keystroke, keyboard and mouse visualizer for SolidWorks tutorial recording on Windows, with OBS Browser Sources.",
 	"engines": {

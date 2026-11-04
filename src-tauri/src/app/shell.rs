@@ -24,6 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use keystage_core::ipc::{HookStatus, Monitor};
+use keystage_core::pointer::PointerEntry;
 use keystage_core::protocol::{AppState, Legends, ServerMsg, SolidworksMode};
 use keystage_core::{builtin, DisplayEvent, Profile, Settings};
 use keystage_obs::ObsEvent;
@@ -36,12 +37,13 @@ use super::obs_bridge::{self, BridgeChange, ObsBridge, RecordTracker, SessionSte
 use super::overlay_window::{self, OverlayManager};
 use super::pipeline::{self, Control, Core, PipelineHandle, Sink, Started};
 use super::server::{ServerManager, TauriAssets};
-use super::sessions::{Origin, Sessions};
+use super::sessions::{self, Origin, Sessions};
 use super::settings_store::{self, io_words, SettingsStore};
 use super::settings_window;
 use super::sound::SoundHandle;
 use super::state::{self, Live, PipelineView, StateInputs, StatusPayload};
 use super::tray::{Tray, TrayView};
+use super::updater::{self, UpdateService, Wake};
 use super::{icons, logging};
 use crate::platform::{self, InputHandle, WatcherHandle};
 
@@ -94,6 +96,8 @@ pub struct Paths {
     pub log_dir: PathBuf,
     /// Documents\IDEA Keystage\Sessions.
     pub default_sessions: PathBuf,
+    /// Downloaded updates (`%LOCALAPPDATA%\com.ideabosco.keystage\updates`).
+    pub updates: PathBuf,
 }
 
 impl Paths {
@@ -108,10 +112,15 @@ impl Paths {
             .map(|d| d.join("IDEA Keystage").join("Sessions"))
             .or_else(|_| p.app_data_dir().map(|d| d.join("Sessions")))
             .unwrap_or_else(|_| config_dir.join("Sessions"));
+        let updates = p
+            .app_local_data_dir()
+            .map(|d| d.join("updates"))
+            .unwrap_or_else(|_| config_dir.join("updates"));
         Ok(Paths {
             config_dir,
             log_dir,
             default_sessions,
+            updates,
         })
     }
 
@@ -169,6 +178,7 @@ pub struct Shell {
     input: OnceLock<InputHandle>,
     watcher: OnceLock<WatcherHandle>,
     tray: OnceLock<Tray<Wry>>,
+    updates: OnceLock<UpdateService>,
     actions: Sender<Action>,
     refresh: Sender<()>,
     preview_visible: AtomicBool,
@@ -196,7 +206,16 @@ impl Sink for ShellSink {
     fn display(&mut self, ev: &DisplayEvent, json: Arc<str>) {
         self.shell.publish(json);
         match ev {
-            DisplayEvent::Callout(c) => self.shell.sessions.lock().on_callout(c),
+            DisplayEvent::Callout(c) => {
+                if c.x.is_some() {
+                    let monitors = self.shell.monitors.lock().clone();
+                    if let Some(placed) = sessions::with_monitor(c, &monitors) {
+                        self.shell.sessions.lock().on_callout(&placed);
+                        return;
+                    }
+                }
+                self.shell.sessions.lock().on_callout(c)
+            }
             DisplayEvent::Key {
                 key, down: true, ..
             } => {
@@ -217,6 +236,10 @@ impl Sink for ShellSink {
         self.shell.live.lock().view = view;
         self.shell.publish_state();
         self.shell.refresh_soon();
+    }
+
+    fn pointer(&mut self, entries: &[PointerEntry]) {
+        self.shell.sessions.lock().on_pointer(entries);
     }
 
     fn failed(&mut self, stopped: bool) {
@@ -312,6 +335,7 @@ pub fn setup(app: &mut tauri::App<Wry>, autostarted: bool) -> Result<(), String>
         input: OnceLock::new(),
         watcher: OnceLock::new(),
         tray: OnceLock::new(),
+        updates: OnceLock::new(),
         actions: actions_tx,
         refresh: refresh_tx,
         preview_visible: AtomicBool::new(false),
@@ -446,6 +470,14 @@ impl Shell {
 
         self.sync_autostart(settings.startup.start_with_windows);
 
+        // Automatic updates (rule 7 allows exactly these requests).
+        match updater::spawn(self.me.clone(), self.paths.updates.clone()) {
+            Ok(u) => {
+                let _ = self.updates.set(u);
+            }
+            Err(e) => tracing::error!(error = %e, "update worker did not start"),
+        }
+
         if settings_window::open_at_start(
             settings.first_run_done,
             settings.startup.show_settings,
@@ -559,6 +591,11 @@ impl Shell {
         }
         if old.startup.start_with_windows != new.startup.start_with_windows {
             self.sync_autostart(new.startup.start_with_windows);
+        }
+        if old.updates != new.updates {
+            if let Some(u) = self.updates.get() {
+                u.wake(Wake::Settings);
+            }
         }
         self.publish_state();
         self.refresh_soon();
@@ -710,17 +747,39 @@ impl Shell {
             None => HookStatus::default(),
         };
         let session = self.sessions.lock().status();
+        let mut status = state::status(
+            &settings,
+            &live,
+            self.server.status(),
+            self.obs.status(settings.obs.enabled),
+            session,
+            hook,
+        );
+        status.update = self.update_status();
         StatusPayload {
-            status: state::status(
-                &settings,
-                &live,
-                self.server.status(),
-                self.obs.status(settings.obs.enabled),
-                session,
-                hook,
-            ),
+            status,
             notices: self.notices(),
         }
+    }
+
+    /// Where the automatic update stands.
+    pub fn update_status(&self) -> keystage_core::ipc::UpdateStatus {
+        self.updates
+            .get()
+            .map(UpdateService::status)
+            .unwrap_or_default()
+    }
+
+    /// Check now (settings window, tray).
+    pub fn check_for_updates(&self) {
+        if let Some(u) = self.updates.get() {
+            u.wake(Wake::CheckNow);
+        }
+    }
+
+    /// True while a Session Log or an OBS recording runs: an update waits.
+    pub fn recording_busy(&self) -> bool {
+        self.sessions.lock().is_active() || self.obs.recording().is_some_and(|r| r.active)
     }
 
     /// Asks the housekeeping thread to emit the status and update the tray.
@@ -745,6 +804,7 @@ impl Shell {
             native_overlay: settings.host.native_overlay,
             session_active,
             marker_enabled: session_active || (settings.obs.enabled && obs_recording),
+            update_line: self.update_status().message,
         }
     }
 
@@ -937,16 +997,41 @@ impl Shell {
     /* --- Sessions ----------------------------------------------------------- */
 
     pub fn session_start(&self, origin: Origin) {
-        if self.sessions.start(unix_ms(), platform::now_ms(), origin) {
-            tracing::info!(by_obs = origin == Origin::Obs, "session log started");
+        let capture = self.settings().session.tutorial_capture;
+        self.session_start_with(origin, capture);
+    }
+
+    /// Starts a Session Log; `capture` turns tutorial capture on for it.
+    /// Returns false when one was already running.
+    pub fn session_start_with(&self, origin: Origin, capture: bool) -> bool {
+        let started = self
+            .sessions
+            .start(unix_ms(), platform::now_ms(), origin, capture);
+        if started {
+            tracing::info!(
+                by_obs = origin == Origin::Obs,
+                capture,
+                "session log started"
+            );
         }
+        self.sync_pointer_log();
         self.publish_state();
         self.refresh_soon();
+        started
+    }
+
+    /// Tutorial capture runs exactly while a capturing Session Log runs.
+    fn sync_pointer_log(&self) {
+        let on = self.sessions.lock().captures_pointer();
+        if let Some(p) = self.pipeline.get() {
+            p.send(Control::PointerLog(on));
+        }
     }
 
     pub fn session_stop(&self) -> Result<(), String> {
         let was = self.sessions.lock().is_active();
         let r = self.sessions.stop(unix_ms(), platform::now_ms());
+        self.sync_pointer_log();
         match &r {
             Ok(_) => {
                 if was {
@@ -1030,9 +1115,11 @@ impl Shell {
                 for step in steps {
                     match step {
                         SessionStep::StartSession => {
-                            if self.sessions.start(unix_ms(), t, Origin::Obs) {
-                                tracing::info!(by_obs = true, "session log started");
+                            let capture = self.settings().session.tutorial_capture;
+                            if self.sessions.start(unix_ms(), t, Origin::Obs, capture) {
+                                tracing::info!(by_obs = true, capture, "session log started");
                             }
+                            self.sync_pointer_log();
                         }
                         SessionStep::Record(e) => self.sessions.lock().record_event(t, e),
                         SessionStep::StopSession => {
@@ -1119,6 +1206,10 @@ impl Shell {
                 }
             }
             Action::AddMarker => self.add_marker(None),
+            Action::CheckUpdates => {
+                self.check_for_updates();
+                Ok(())
+            }
             Action::OpenSettings => {
                 self.open_settings();
                 Ok(())

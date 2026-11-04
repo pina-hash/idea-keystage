@@ -24,6 +24,7 @@ keystage-core.workspace = true
 keystage-session.workspace = true
 keystage-server.workspace = true
 keystage-obs.workspace = true
+keystage-update.workspace = true
 tauri = { workspace = true, features = ["tray-icon", "image-png"] }
 tauri-plugin-single-instance.workspace = true
 tauri-plugin-global-shortcut.workspace = true

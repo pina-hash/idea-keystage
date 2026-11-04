@@ -1,9 +1,9 @@
 {
-  "schema": "keystage.session/1",
+  "schema": "keystage.session/1.1",
   "id": "2026-10-01T14-00-00Z",
   "app": {
     "name": "IDEA Keystage",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "started": "2026-10-01T14:00:00.000Z",
   "started_unix_ms": 1790863200000,

@@ -1,0 +1,19 @@
+[package]
+name = "keystage-update"
+description = "Automatic updates for IDEA Keystage: reads the latest GitHub release, picks and verifies the installer against SHA256SUMS.txt, and decides when it may install."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+authors.workspace = true
+
+[dependencies]
+keystage-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

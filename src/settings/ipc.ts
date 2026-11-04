@@ -83,6 +83,8 @@ export const COMMANDS = {
 	hotkeysStatus: 'hotkeys_status',
 	/** Addition. */
 	platformInfo: 'platform_info',
+	/** Addition: check for updates now (ARCHITECTURE.md section 13). */
+	updateCheck: 'update_check',
 } as const;
 export type CommandName = (typeof COMMANDS)[keyof typeof COMMANDS];
 
@@ -310,6 +312,14 @@ export class KeystageIpc {
 	/** Addition: the Windows build, for options that need a minimum build. */
 	async platformInfo(): Promise<PlatformInfo> {
 		return this.call<PlatformInfo>(COMMANDS.platformInfo);
+	}
+
+	/**
+	 * Addition: check for updates now. The check runs in the app; its result
+	 * arrives in `Status.update` with the next `keystage://status`.
+	 */
+	async updateCheck(): Promise<Status> {
+		return normalizeStatus(await this.call<unknown>(COMMANDS.updateCheck));
 	}
 
 	/* --- Events ----------------------------------------------------------- */

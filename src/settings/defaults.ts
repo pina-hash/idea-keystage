@@ -26,7 +26,9 @@ import {
 	type Settings,
 	type Status,
 	type TypingMode,
+	type UpdateState,
 	type UserShortcut,
+	UPDATE_STATES,
 } from './types';
 
 /** keystage-core `DEFAULT_EXCLUDED_APPS`: a starting list, not sourced data. */
@@ -144,8 +146,9 @@ export function defaultSettings(): Settings {
 			password_dpapi: null,
 			auto_session: true,
 		},
-		session: { folder: null, autosave: true },
+		session: { folder: null, autosave: true, tutorial_capture: false },
 		startup: { start_with_windows: false, show_settings: true },
+		updates: { auto: true },
 	};
 }
 
@@ -306,6 +309,7 @@ export function normalizeSettings(v: unknown): Settings {
 	const obs = rec(r.obs);
 	const session = rec(r.session);
 	const startup = rec(r.startup);
+	const updates = rec(r.updates);
 	const shortcuts = Array.isArray(profiles.solidworks_user_shortcuts)
 		? profiles.solidworks_user_shortcuts
 				.map(normalizeUserShortcut)
@@ -351,11 +355,13 @@ export function normalizeSettings(v: unknown): Settings {
 		session: {
 			folder: strOrNull(session.folder),
 			autosave: bool(session.autosave, d.session.autosave),
+			tutorial_capture: bool(session.tutorial_capture, d.session.tutorial_capture),
 		},
 		startup: {
 			start_with_windows: bool(startup.start_with_windows, d.startup.start_with_windows),
 			show_settings: bool(startup.show_settings, true),
 		},
+		updates: { auto: bool(updates.auto, d.updates.auto) },
 	};
 }
 
@@ -371,6 +377,7 @@ export function defaultStatus(): Status {
 		session: null,
 		hook: { installed: false, dropped: 0 },
 		version: '',
+		update: { state: 'idle', message: '', version: null, checked: null },
 		notices: [],
 	};
 }
@@ -397,6 +404,7 @@ export function normalizeStatus(v: unknown): Status {
 	const profile = isRecord(r.profile) ? r.profile : null;
 	const recording = isRecord(obs.recording) ? obs.recording : null;
 	const session = isRecord(r.session) ? r.session : null;
+	const update = rec(r.update);
 	return {
 		paused: bool(r.paused, d.paused),
 		suppressed:
@@ -441,6 +449,12 @@ export function normalizeStatus(v: unknown): Status {
 			dropped: int(hook.dropped, 0, 0),
 		},
 		version: str(r.version, d.version),
+		update: {
+			state: oneOf<UpdateState>(UPDATE_STATES, update.state, d.update.state),
+			message: str(update.message, ''),
+			version: strOrNull(update.version),
+			checked: strOrNull(update.checked),
+		},
 		notices: sentences(r.notices),
 	};
 }

@@ -293,9 +293,31 @@ pub struct Callout {
     pub profile: Option<String>,
     pub t_ms: u64,
     pub updated_ms: u64,
+    /// Mouse callouts only: where the pointer was at the last update
+    /// (`updated_ms`), physical screen pixels, virtual-screen coordinates:
+    /// the press point of a click, double click, drag or gesture, and the
+    /// cursor of a wheel step. Kept for the Session Log
+    /// (`keystage.session/1.1`); the wire `callout` message leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<i32>,
+    /// The device name of the monitor that point is on (`\\.\DISPLAY1`),
+    /// added by the app when it stores the callout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monitor: Option<String>,
 }
 
 impl Callout {
+    /// The callout as the wire carries it: without the screen point.
+    pub fn for_wire(&self) -> Callout {
+        let mut c = self.clone();
+        c.x = None;
+        c.y = None;
+        c.monitor = None;
+        c
+    }
+
     /// Plain text form used by exports and tests: `Ctrl + Shift + S`,
     /// `Alt, F, C`, `Ctrl + Z x4`, `25.4 Enter`, `Typing`.
     pub fn text_form(&self) -> String {
@@ -384,7 +406,9 @@ impl DisplayEvent {
     /// The wire message for this event (section 5).
     pub fn to_server_msg(&self) -> ServerMsg {
         match self {
-            DisplayEvent::Callout(c) => ServerMsg::Callout { callout: c.clone() },
+            DisplayEvent::Callout(c) => ServerMsg::Callout {
+                callout: c.for_wire(),
+            },
             DisplayEvent::Key {
                 phys,
                 key,
@@ -519,6 +543,9 @@ mod tests {
             profile: None,
             t_ms: 0,
             updated_ms: 0,
+            x: None,
+            y: None,
+            monitor: None,
         }
     }
 

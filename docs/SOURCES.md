@@ -30,6 +30,7 @@ Windows input, windows and security (learn.microsoft.com):
 - Guides and references (v2.tauri.app): window customization (https://v2.tauri.app/learn/window-customization/), configuration (https://v2.tauri.app/reference/config/), JavaScript window API (https://v2.tauri.app/reference/javascript/api/namespacewindow/), Windows installer (https://v2.tauri.app/distribute/windows-installer/), updater (https://v2.tauri.app/plugin/updater/), CSP (https://v2.tauri.app/security/csp/), capabilities (https://v2.tauri.app/security/capabilities/), single instance (https://v2.tauri.app/plugin/single-instance/).
 - API documentation: `WebviewWindow` for the Windows target (https://docs.rs/tauri/2.12.1/x86_64-pc-windows-msvc/tauri/webview/struct.WebviewWindow.html).
 - Source read from the pinned crates in the cargo registry: tauri 2.12.1 (event delivery, asset fallbacks, menus), tauri-build 2.7.1 (default manifest), tauri-utils 2.10.1 (CSP nonce), tao 0.37.1 (window styles, first show, DPI), wry 0.57.0 (WebView2 background), tauri-plugin-global-shortcut 2.4.0 and global-hotkey 0.8.0 (accelerator tokens), tauri-plugin-autostart 2.7.0, rodio 0.22.2. File and line references are in `docs/DECISIONS.md` and `docs/ARCHITECTURE.md`.
+- Updates (DECISIONS item 9, read 2026-11-04): tauri-bundler 2.10.1, the bundler `@tauri-apps/cli` 2.12.1 uses (tauri-cli 2.12.1's crates.io index entry), `src/bundle/windows/nsis/installer.nsi` and `utils.nsh` (crate SHA-256 `e3e621d2f7624f024a023ae513d071e7b0305fb9a7f51cb2ae5b35c0b62472be`): the installer switches; tauri-plugin-updater 2.14.1 `src/updater.rs` and `src/config.rs` (crate SHA-256 `d957abbcb3f9f6c76d22a3a0f012f30880640d0bccb5634d2b12a9937e4c872b`): the official updater's arguments and its required signature. Both checksums matched the crates.io index.
 - Prior art read, not used: Keyviz's Tauri configuration (https://raw.githubusercontent.com/mulaRahul/keyviz/main/src-tauri/tauri.conf.json).
 
 ## OBS
@@ -41,6 +42,10 @@ Windows input, windows and security (learn.microsoft.com):
 - Community report of loopback URLs working in a Browser Source (2018, anecdotal): https://obsproject.com/forum/threads/localhost-not-working-in-browsersource-in-21-1.82970/.
 
 ## Other
+
+- GitHub REST API `GET /repos/pina-hash/idea-keystage/releases/latest`, the real answer for v0.1.0 read with `gh api` on 2026-11-04 (a trimmed copy is a test in `crates/keystage-update/src/release.rs`): the fields the update check reads.
+- ureq 3.4.2 source (`src/config.rs`, `src/body/mod.rs`, `src/error.rs`) from the cargo registry: `https_only`, body limits, redirects and errors, read 2026-11-04.
+- semver 2.0.0 (https://semver.org/#spec-item-11): version precedence.
 
 - YouTube Help, "Video chapters" (https://support.google.com/youtube/answer/9884579): the chapter export rules.
 - Library of Congress, "SubRip Subtitle format (SRT)" (https://www.loc.gov/preservation/digital/formats/fdd/fdd000569.shtml, "Last Updated: 05/27/2026"): the SRT export.

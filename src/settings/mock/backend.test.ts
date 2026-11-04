@@ -88,7 +88,7 @@ describe('scenarios', () => {
 			expect(Array.isArray(await ipc.listMonitors())).toBe(true);
 			expect(Array.isArray(await ipc.sessionsList())).toBe(true);
 			expect(s.first_run_done).toBe(sc !== 'first-run');
-			expect(st.version).toBe('0.1.0');
+			expect(st.version).toBe('0.2.0');
 		}
 	});
 

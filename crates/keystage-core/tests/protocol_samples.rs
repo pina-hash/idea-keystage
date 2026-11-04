@@ -88,7 +88,9 @@ fn first_of(out: &[DisplayEvent], pred: impl Fn(&DisplayEvent) -> bool) -> Serve
 }
 
 fn callout_msg(c: &keystage_core::Callout) -> ServerMsg {
-    ServerMsg::Callout { callout: c.clone() }
+    ServerMsg::Callout {
+        callout: c.for_wire(),
+    }
 }
 
 /// Every server sample, by file name.

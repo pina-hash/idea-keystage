@@ -54,15 +54,15 @@
 	];
 	const KEEPS = [
 		"Your settings, in the app's config folder.",
-		'A session log, only when you start one or turn on OBS auto sessions. It holds only the callouts that were shown and your chapter markers.',
+		'A session log, only when you start one or turn on OBS auto sessions. It holds only the callouts that were shown, where mouse callouts happened on screen, and your chapter markers. With tutorial capture on, it also keeps every click and the cursor path, never keys.',
 		'Your OBS password, encrypted by Windows for your account only. It is never shown again.',
 	];
 	const NEVER = [
-		'Connects to the internet: no account, no telemetry, no update check.',
+		'Connects to the internet, except to check GitHub for a new version of IDEA Keystage (you can turn that off on the General page). That check sends nothing about you: no account, no telemetry.',
 		'Writes what you type to disk, except a session log you started.',
 		'Puts key names, typed text, callouts or captions in its diagnostic log.',
 		'Lets another computer or a web page read your keys. The local server answers on 127.0.0.1 only and only to pages from that address.',
-		'Opens any other connection than the OBS WebSocket address you set, and only while you have it turned on.',
+		'Opens any other connection than the update check and the OBS WebSocket address you set, and only while you have OBS turned on.',
 	];
 </script>
 

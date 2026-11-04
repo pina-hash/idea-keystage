@@ -39,7 +39,7 @@ type ShellState<'a> = State<'a, Arc<Shell>>;
 
 /// Every command name, as registered (and as `build.rs` lists them for the
 /// permission manifest).
-pub const COMMANDS: [&str; 31] = [
+pub const COMMANDS: [&str; 32] = [
     "get_settings",
     "save_settings",
     "reset_settings",
@@ -71,6 +71,7 @@ pub const COMMANDS: [&str; 31] = [
     "hotkeys_capture",
     "hotkeys_status",
     "platform_info",
+    "update_check",
 ];
 
 /// Shortcut files larger than this are not exports.
@@ -577,6 +578,17 @@ pub async fn platform_info() -> Res<PlatformInfo> {
     })
 }
 
+/// Check for updates now. The check runs on the update worker; the result
+/// arrives with `keystage://status`.
+#[tauri::command]
+pub async fn update_check(shell: ShellState<'_>) -> Res<StatusPayload> {
+    blocking(&shell, |s| {
+        s.check_for_updates();
+        Ok(s.status())
+    })
+    .await
+}
+
 /// The invoke handler with every command.
 pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
@@ -611,6 +623,7 @@ pub fn handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Syn
         hotkeys_capture,
         hotkeys_status,
         platform_info,
+        update_check,
     ]
 }
 

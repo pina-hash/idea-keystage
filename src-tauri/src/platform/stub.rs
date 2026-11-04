@@ -180,6 +180,11 @@ pub fn os_build() -> Option<u32> {
     None
 }
 
+/// Updates install only on Windows.
+pub fn launch(_exe: &std::path::Path, _parameters: &str) -> Result<(), PlatformError> {
+    Err(PlatformError::Unsupported)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

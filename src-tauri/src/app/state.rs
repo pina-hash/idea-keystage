@@ -154,6 +154,8 @@ pub fn status(
         session,
         hook,
         version: APP_VERSION.to_string(),
+        // Filled in by the shell from the update worker.
+        update: Default::default(),
     }
 }
 

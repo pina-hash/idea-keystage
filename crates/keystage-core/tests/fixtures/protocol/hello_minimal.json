@@ -2,7 +2,7 @@
 	"t": "hello",
 	"v": 1,
 	"app": "IDEA Keystage",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"config": {
 		"theme": "idea",
 		"custom": null,

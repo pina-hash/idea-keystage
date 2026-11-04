@@ -16,6 +16,8 @@ pub enum Action {
     ToggleNativeOverlay,
     ToggleSession,
     AddMarker,
+    /// Check for updates now.
+    CheckUpdates,
     OpenSettings,
     Quit,
 }

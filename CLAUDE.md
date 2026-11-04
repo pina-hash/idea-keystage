@@ -24,6 +24,7 @@ IDEA Keystage is a Windows 10 and 11 (x64) keystroke, keyboard and mouse visuali
 | `crates/keystage-session/`                                                                                                                               | server, OBS, exports       | Pure Rust: Session Log, recording clock, SRT, Markdown, JSON and chapter exports                                                             |
 | `crates/keystage-server/`                                                                                                                                | server, OBS, exports       | axum server on `127.0.0.1`, WebSocket hub, routes, `demo` example binary                                                                     |
 | `crates/keystage-obs/`                                                                                                                                   | server, OBS, exports       | obs-websocket 5 client                                                                                                                       |
+| `crates/keystage-update/`                                                                                                                                | updates                    | Automatic updates: release choice, SHA256SUMS check, schedule and deferral, the HTTPS client (the app's only outbound requests)              |
 | `src-tauri/src/platform/**`                                                                                                                              | Windows layer              | Hooks, watcher, UI Automation password check, legends, monitors, window styles, DPAPI; `stub.rs` off Windows                                 |
 | `src-tauri/src/app/**`, `lib.rs`, `main.rs`, `tauri.conf.json`, `capabilities/`, `permissions/`, `icons/`, `build.rs`                                    | app shell                  | Pipeline, Host A, tray, hotkeys, IPC commands, settings store, sessions, sound playback                                                      |
 | `src/overlay/**`, `src/lib/renderer/` (except below), `src/lib/protocol.ts`, `src/lib/themes/**`, `src/lib/styles/**`, `src/lib/demo/**`, `overlay.html` | renderer and themes        | The one renderer for Host A, OBS and the settings preview                                                                                    |
@@ -45,7 +46,7 @@ npx vitest run src/lib/renderer   # one folder
 npm run build            # dist/ (overlay.html and settings.html)
 npm run format:check     # Prettier, repo config
 
-cargo test               # default members: core, session, server, obs (never builds Tauri)
+cargo test               # default members: core, session, server, obs, update (never builds Tauri)
 cargo test -p keystage-core
 cargo test -p idea-keystage                     # the app and platform tests
 cargo clippy --all-targets -- -D warnings
@@ -77,10 +78,10 @@ From `docs/ARCHITECTURE.md` section 8. Every change is reviewed against them.
 1. The hook callbacks copy a fixed-size record (stamped with the password hold word, one atomic load) into a preallocated lock-free queue, unpark the pipeline thread, call `CallNextHookEx` and return. No allocation, no logging, no locks, no other system calls.
 2. Pausing uninstalls both hooks. Resuming reinstalls them and resyncs modifiers.
 3. A password field (UI Automation `IsPassword`, or an Edit control with `ES_PASSWORD`), an excluded app, a locked session or an unidentified foreground suppresses everything: no display, no keyboard light, no log entry, no sound. Keys typed between a focus change and its classification are held and dropped unless the new focus is "not a password". Context changes that hide apply before queued input; changes that show more apply after it. Without UI Automation, typing is masked in every profile. Fail closed whenever in doubt.
-4. Nothing typed is written to disk except a Session Log the user started (hotkey, tray, settings, or an OBS recording while the user has turned on the OBS connection, whose "Session log with each recording" switch is on by default), and a Session Log stores only the `callout` messages that were displayed plus chapter markers.
+4. Nothing typed is written to disk except a Session Log the user started (hotkey, tray, settings, or an OBS recording while the user has turned on the OBS connection, whose "Session log with each recording" switch is on by default), and a Session Log stores only the `callout` messages that were displayed (mouse callouts with their screen point) plus chapter markers, and, only when the user turned on "Tutorial capture: log every click", the mouse entries logged while nothing was suppressed (`pointer`, never keys).
 5. `tracing` output never contains key names, text, callouts, captions, settings values, app names or import contents. Lifecycle only; settings issues by field name only.
 6. The server binds `127.0.0.1` only and enforces the WebSocket Host and Origin rules (section 6). No CORS headers.
-7. The app makes no outbound network request. The only socket it opens is to the obs-websocket host the user configured, while OBS is turned on. No telemetry, no update check.
+7. The app opens exactly two kinds of outbound connection: the socket to the obs-websocket host the user configured, while OBS is turned on; and the update check and download (HTTPS GET to `api.github.com` for the latest release of `pina-hash/idea-keystage`, then that release's installer and `SHA256SUMS.txt` from `github.com`, redirects to GitHub's asset host included), while "Check for updates automatically" is on or when the user asks. Those requests send a fixed user agent and nothing about the user: no identifiers, no cookies, no telemetry. Nothing else.
 8. The OBS password is stored only as a DPAPI (CurrentUser) blob, never in plain text, never exported.
 
 ## SolidWorks data is sourced, never recalled

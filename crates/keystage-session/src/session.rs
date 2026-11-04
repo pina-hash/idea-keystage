@@ -10,6 +10,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use keystage_core::ipc::{SessionStatus, SessionSummary};
+use keystage_core::pointer::PointerEntry;
 use keystage_core::protocol::{SessionState, APP_NAME, APP_VERSION};
 use keystage_core::Callout;
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,7 @@ use crate::clock::{ClockEvent, ClockSample, RecordEvent, RecordingLog};
 use crate::time;
 
 /// The schema id written into every session file.
-pub const SESSION_SCHEMA: &str = "keystage.session/1";
+pub const SESSION_SCHEMA: &str = "keystage.session/1.1";
 /// The schema family this version reads (`keystage.session/<major>`).
 const SCHEMA_PREFIX: &str = "keystage.session/";
 const SCHEMA_MAJOR: &str = "1";
@@ -30,6 +31,10 @@ pub const MAX_CALLOUTS: usize = 100_000;
 pub const MAX_MARKERS: usize = 1_000;
 /// Longest marker name, in characters.
 pub const MAX_MARKER_NAME: usize = 100;
+/// Most tutorial capture entries in one session (about four and a half
+/// hours of steady movement at 30 samples a second); later ones are dropped
+/// and `pointer_truncated` is set.
+pub const MAX_POINTER: usize = 500_000;
 /// Most stored OBS events and duration samples.
 pub const MAX_CLOCK_EVENTS: usize = 10_000;
 pub const MAX_CLOCK_SAMPLES: usize = 20_000;
@@ -119,6 +124,14 @@ pub struct Session {
     /// True when [`MAX_CALLOUTS`] was reached and later callouts were dropped.
     #[serde(default)]
     pub truncated: bool,
+    /// Tutorial capture (1.1): every press, release, double click, drag,
+    /// wheel step and a 30 per second cursor path. Absent when the session
+    /// was recorded without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pointer: Option<Vec<PointerEntry>>,
+    /// True when [`MAX_POINTER`] was reached and later entries were dropped.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pointer_truncated: bool,
     /// Fields written by a newer 1.x version, kept so a rename round trip
     /// does not lose them.
     #[serde(flatten)]
@@ -158,6 +171,8 @@ impl Session {
             markers: Vec::new(),
             callouts: Vec::new(),
             truncated: false,
+            pointer: None,
+            pointer_truncated: false,
             extra: BTreeMap::new(),
         }
     }
@@ -228,7 +243,7 @@ impl Session {
     /// Pretty JSON with a trailing newline (the file and the JSON export).
     pub fn to_json_pretty(&self) -> String {
         let mut s = serde_json::to_string_pretty(self)
-            .unwrap_or_else(|_| String::from("{\"schema\":\"keystage.session/1\"}"));
+            .unwrap_or_else(|_| String::from("{\"schema\":\"keystage.session/1.1\"}"));
         s.push('\n');
         s
     }
@@ -293,6 +308,10 @@ impl Session {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.utf8_error()))?;
         Session::from_json(&text)
     }
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 fn count_u32(n: usize) -> u32 {
@@ -368,6 +387,37 @@ impl SessionLog {
         self.index.insert(key, self.session.callouts.len());
         self.session.callouts.push(callout.clone());
         true
+    }
+
+    /// Turns on tutorial capture for this session: `pointer` is written
+    /// (empty until entries arrive).
+    pub fn capture_pointer(&mut self) {
+        if self.is_active() && self.session.pointer.is_none() {
+            self.session.pointer = Some(Vec::new());
+        }
+    }
+
+    /// True when this session logs every click.
+    pub fn captures_pointer(&self) -> bool {
+        self.session.pointer.is_some()
+    }
+
+    /// Adds tutorial capture entries (only while the session runs with
+    /// capture on). Returns how many were kept.
+    pub fn add_pointer(&mut self, entries: &[PointerEntry]) -> usize {
+        if !self.is_active() {
+            return 0;
+        }
+        let Some(list) = self.session.pointer.as_mut() else {
+            return 0;
+        };
+        let room = MAX_POINTER.saturating_sub(list.len());
+        let kept = entries.len().min(room);
+        list.extend_from_slice(&entries[..kept]);
+        if kept < entries.len() {
+            self.session.pointer_truncated = true;
+        }
+        kept
     }
 
     /// Adds a chapter marker at `t_ms`. Returns its index.
@@ -491,6 +541,9 @@ mod tests {
             profile: Some("fixture".into()),
             t_ms,
             updated_ms,
+            x: None,
+            y: None,
+            monitor: None,
         }
     }
 
@@ -758,5 +811,65 @@ mod tests {
             !again.clock_sample(1_020, 1_005, false),
             "predicted by the stored sample"
         );
+    }
+
+    #[test]
+    fn tutorial_capture_is_written_only_when_on() {
+        use keystage_core::pointer::PointerKind;
+        let entry = |t| PointerEntry {
+            t_ms: t,
+            kind: PointerKind::Move,
+            button: None,
+            x: 10,
+            y: -20,
+            dx: 0,
+            dy: 0,
+            mods: Vec::new(),
+        };
+        let mut log = SessionLog::start("s", 1_790_812_800_000, 1_000);
+        assert_eq!(log.add_pointer(&[entry(1_100)]), 0, "off by default");
+        let json = log.session().to_json_pretty();
+        assert!(!json.contains("\"pointer\""), "{json}");
+        assert!(json.contains("\"schema\": \"keystage.session/1.1\""));
+        log.capture_pointer();
+        assert!(log.captures_pointer());
+        assert!(log.session().to_json_pretty().contains("\"pointer\": []"));
+        assert_eq!(log.add_pointer(&[entry(1_200), entry(1_300)]), 2);
+        let back = Session::from_json(&log.session().to_json_pretty()).expect("read");
+        assert_eq!(back.pointer.as_ref().map(Vec::len), Some(2));
+        assert_eq!(back.pointer.as_ref().expect("p")[0].y, -20);
+        log.stop(2_000, 1_790_812_801_000);
+        assert_eq!(log.add_pointer(&[entry(2_100)]), 0, "stopped");
+    }
+
+    #[test]
+    fn tutorial_capture_has_a_limit() {
+        use keystage_core::pointer::PointerKind;
+        let mut log = SessionLog::start("s", 0, 0);
+        log.capture_pointer();
+        let many: Vec<PointerEntry> = (0..MAX_POINTER as u64 + 3)
+            .map(|t| PointerEntry {
+                t_ms: t,
+                kind: PointerKind::Move,
+                button: None,
+                x: 0,
+                y: 0,
+                dx: 0,
+                dy: 0,
+                mods: Vec::new(),
+            })
+            .collect();
+        assert_eq!(log.add_pointer(&many), MAX_POINTER);
+        assert!(log.session().pointer_truncated);
+    }
+
+    #[test]
+    fn a_1_0_file_still_loads() {
+        let s = Session::from_json(
+            r#"{"schema":"keystage.session/1","id":"x","started":"2026-10-01T00:00:00.000Z","started_unix_ms":0,"start_ms":0,"callouts":[{"id":1,"kind":"mouse","steps":[[]],"text":null,"count":1,"caption":null,"context":null,"profile":null,"t_ms":5,"updated_ms":5}]}"#,
+        )
+        .expect("1.0");
+        assert_eq!(s.pointer, None);
+        assert_eq!(s.callouts[0].x, None);
     }
 }

@@ -1027,3 +1027,87 @@ fn display_events_convert_to_wire_messages() {
     let release = DisplayEvent::ModifiersReleased { t_ms: 5 };
     assert_eq!(release.to_json(), r#"{"t":"release_all","t_ms":5}"#);
 }
+
+#[test]
+fn mouse_callouts_carry_their_screen_point_but_the_wire_does_not() {
+    let mut h = H::new(mouse_rules());
+    // A middle click on a monitor left of the primary one.
+    h.button(MouseButton::Middle, true, -1500, 300);
+    let out = h.button(MouseButton::Middle, false, -1500, 300);
+    let c = last(&out);
+    assert_eq!(c.kind, CalloutKind::Mouse);
+    assert_eq!((c.x, c.y), (Some(-1500), Some(300)));
+    assert_eq!(c.monitor, None, "the app adds the monitor");
+    for json in wire(&out) {
+        assert!(!json.contains("\"x\":-1500"), "{json}");
+        assert!(!json.contains("monitor"), "{json}");
+    }
+    // A drag keeps its press point; a repeat moves the point to the newest.
+    h.wait(2000);
+    h.button(MouseButton::Middle, true, 100, 100);
+    let out = h.mv(150, 100);
+    assert_eq!((last(&out).x, last(&out).y), (Some(100), Some(100)));
+    h.button(MouseButton::Middle, false, 150, 100);
+    h.button(MouseButton::Middle, true, 200, 200);
+    let out = h.mv(260, 200);
+    let c = last(&out);
+    assert_eq!(c.count, 2);
+    assert_eq!((c.x, c.y), (Some(200), Some(200)));
+    // A wheel step is placed at the cursor.
+    h.wait(2000);
+    let out = h.wheel(0, 120);
+    assert_eq!((last(&out).x, last(&out).y), (Some(500), Some(500)));
+    // Keyboard callouts have no point.
+    h.wait(2000);
+    let out = h.combo(&["Ctrl"], "S");
+    assert_eq!(last(&out).x, None);
+}
+
+#[test]
+fn tutorial_capture_logs_every_click_only_while_nothing_is_hidden() {
+    use keystage_core::pointer::PointerKind;
+    // The default rules: plain left clicks make no callout ...
+    let mut h = H::general();
+    h.button(MouseButton::Left, true, 10, 20);
+    h.button(MouseButton::Left, false, 10, 20);
+    assert!(h.callouts().is_empty());
+    assert!(h.p.take_pointer().is_empty(), "capture is off by default");
+    // ... but with tutorial capture on, every press and release is logged.
+    h.p.set_pointer_log(true);
+    h.button(MouseButton::Left, true, 10, 20);
+    h.mv(11, 20);
+    h.button(MouseButton::Left, false, 11, 20);
+    let e = h.p.take_pointer();
+    assert_eq!(
+        e.iter().map(|e| e.kind).collect::<Vec<_>>(),
+        vec![PointerKind::Down, PointerKind::Move, PointerKind::Up]
+    );
+    assert!(h.callouts().is_empty(), "the overlay is unchanged");
+    // A password field: nothing at all, not even moves.
+    let _ = h.p.set_suppressed(Some(Suppress::Password));
+    h.button(MouseButton::Left, true, 30, 40);
+    h.mv(90, 40);
+    h.wheel(0, -120);
+    h.button(MouseButton::Left, false, 90, 40);
+    assert!(h.p.take_pointer().is_empty(), "suppressed: no entries");
+    // An excluded app or an unidentified foreground: the same.
+    let _ =
+        h.p.set_suppressed(Some(Suppress::ExcludedApp(String::new())));
+    h.button(MouseButton::Right, true, 30, 40);
+    h.button(MouseButton::Right, false, 30, 40);
+    assert!(h.p.take_pointer().is_empty());
+    // Back to normal: a button pressed while hidden is not a drag now.
+    let _ = h.p.set_suppressed(Some(Suppress::Password));
+    h.button(MouseButton::Left, true, 0, 0);
+    let _ = h.p.set_suppressed(None);
+    h.button(MouseButton::Left, false, 300, 0);
+    let e = h.p.take_pointer();
+    assert_eq!(
+        e.iter().map(|e| e.kind).collect::<Vec<_>>(),
+        vec![PointerKind::Up]
+    );
+    // Off again: nothing more.
+    h.p.set_pointer_log(false);
+    h.button(MouseButton::Left, true, 1, 1);
+    assert!(h.p.take_pointer().is_empty());
+}

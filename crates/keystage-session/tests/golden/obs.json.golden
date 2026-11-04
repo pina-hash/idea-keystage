@@ -1,9 +1,9 @@
 {
-  "schema": "keystage.session/1",
+  "schema": "keystage.session/1.1",
   "id": "2026-10-01T14-00-00Z",
   "app": {
     "name": "IDEA Keystage",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "started": "2026-10-01T14:00:00.000Z",
   "started_unix_ms": 1790863200000,
@@ -169,7 +169,10 @@
       "context": null,
       "profile": "fixture",
       "t_ms": 20000,
-      "updated_ms": 21000
+      "updated_ms": 21000,
+      "x": -1600,
+      "y": 420,
+      "monitor": "\\\\.\\DISPLAY2"
     },
     {
       "id": 5,
@@ -307,7 +310,10 @@
       "context": null,
       "profile": "fixture",
       "t_ms": 70000,
-      "updated_ms": 71000
+      "updated_ms": 71000,
+      "x": 960,
+      "y": 540,
+      "monitor": "\\\\.\\DISPLAY1"
     },
     {
       "id": 11,
@@ -335,5 +341,54 @@
       "updated_ms": 96000
     }
   ],
-  "truncated": false
+  "truncated": false,
+  "pointer": [
+    {
+      "t_ms": 19000,
+      "kind": "move",
+      "x": -1700,
+      "y": 400
+    },
+    {
+      "t_ms": 20000,
+      "kind": "down",
+      "button": "middle",
+      "x": -1600,
+      "y": 420
+    },
+    {
+      "t_ms": 20100,
+      "kind": "drag_start",
+      "button": "middle",
+      "x": -1600,
+      "y": 420
+    },
+    {
+      "t_ms": 20500,
+      "kind": "move",
+      "x": -1450,
+      "y": 380
+    },
+    {
+      "t_ms": 21000,
+      "kind": "drag_end",
+      "button": "middle",
+      "x": -1400,
+      "y": 370
+    },
+    {
+      "t_ms": 21000,
+      "kind": "up",
+      "button": "middle",
+      "x": -1400,
+      "y": 370
+    },
+    {
+      "t_ms": 70000,
+      "kind": "wheel",
+      "x": 960,
+      "y": 540,
+      "dy": 120
+    }
+  ]
 }

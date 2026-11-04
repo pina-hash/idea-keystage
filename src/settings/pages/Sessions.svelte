@@ -389,6 +389,12 @@
 		>
 			<Switch bind:checked={s.session.autosave} label="Save when a session stops" />
 		</Row>
+		<Row
+			label="Tutorial capture: log every click"
+			help="Session logs started while this is on also keep every click, drag and wheel step with its screen position, and the cursor path, even clicks the overlay does not show. Nothing is logged in password fields or excluded apps."
+		>
+			<Switch bind:checked={s.session.tutorial_capture} label="Tutorial capture: log every click" />
+		</Row>
 	</Card>
 </div>
 
