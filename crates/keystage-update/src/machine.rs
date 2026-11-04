@@ -261,6 +261,39 @@ impl Updater {
     }
 }
 
+/// Longest tray menu line.
+pub const MENU_LINE_MAX: usize = 72;
+
+/// The status sentence, short enough for the tray menu (the full sentence
+/// is in the settings window): itself, else its first sentence, else cut at
+/// a word with an ellipsis.
+pub fn menu_line(message: &str) -> String {
+    const MAX: usize = MENU_LINE_MAX;
+    if message.is_empty() {
+        return "Updates".to_string();
+    }
+    if message.chars().count() <= MAX {
+        return message.to_string();
+    }
+    // The first sentence, or the first 60 characters at a word boundary.
+    let first = message.split(". ").next().unwrap_or(message);
+    if first.chars().count() <= MAX {
+        return format!("{}.", first.trim_end_matches('.'));
+    }
+    let mut out = String::new();
+    for w in first.split_whitespace() {
+        if out.chars().count() + w.chars().count() + 1 > MAX - 3 {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(w);
+    }
+    out.push_str("...");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -533,5 +566,59 @@ mod tests {
             Some(Phase::Updated(v)),
         );
         assert_eq!(u.status(true).message, "Updated to 0.3.0.");
+    }
+
+    #[test]
+    fn menu_lines_fit_the_tray() {
+        assert_eq!(menu_line(""), "Updates");
+        assert_eq!(menu_line("Updated to 0.3.0."), "Updated to 0.3.0.");
+        let long = "Update 0.3.0 is downloaded and installs when recording stops.";
+        assert_eq!(menu_line(long), long);
+        let two = UpdateError::Network.message();
+        assert_eq!(menu_line(&two), two, "71 characters fit");
+        let three = UpdateError::RateLimited.message();
+        assert_eq!(
+            menu_line(&three),
+            "GitHub asked for fewer update checks from this network."
+        );
+        let u = Updater::new(
+            Version::parse("0.2.0").expect("v"),
+            Source::github(),
+            0,
+            Some(Phase::Available(Version::parse("0.3.0").expect("v"))),
+        );
+        assert_eq!(
+            menu_line(&u.status(true).message),
+            "Version 0.3.0 is available."
+        );
+        let w = "a ".repeat(80);
+        let out = menu_line(&w);
+        assert!(
+            out.chars().count() <= MENU_LINE_MAX && out.ends_with("..."),
+            "{out}"
+        );
+        // Every message the updater can show fits.
+        let v = Version::parse("10.20.30").expect("v");
+        for phase in [
+            Phase::Idle,
+            Phase::Checking,
+            Phase::UpToDate,
+            Phase::Available(v.clone()),
+            Phase::Downloading(v.clone()),
+            Phase::Ready(v.clone(), PathBuf::from("x")),
+            Phase::Installing(v.clone()),
+            Phase::Updated(v.clone()),
+            Phase::Failed(UpdateError::DidNotFinish("10.20.30".into())),
+        ] {
+            let u = Updater::new(
+                Version::parse("10.20.29").expect("v"),
+                Source::github(),
+                0,
+                Some(phase),
+            );
+            for auto in [true, false] {
+                assert!(menu_line(&u.status(auto).message).chars().count() <= MENU_LINE_MAX);
+            }
+        }
     }
 }

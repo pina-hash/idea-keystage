@@ -91,35 +91,6 @@ pub fn session_text(active: bool) -> &'static str {
     }
 }
 
-/// The update line, short enough for a menu (the full sentence is in the
-/// settings window).
-pub fn update_line_text(message: &str) -> String {
-    const MAX: usize = 60;
-    if message.is_empty() {
-        return "Updates".to_string();
-    }
-    if message.chars().count() <= MAX {
-        return message.to_string();
-    }
-    // The first sentence, or the first 60 characters at a word boundary.
-    let first = message.split(". ").next().unwrap_or(message);
-    if first.chars().count() <= MAX {
-        return format!("{}.", first.trim_end_matches('.'));
-    }
-    let mut out = String::new();
-    for w in first.split_whitespace() {
-        if out.chars().count() + w.chars().count() + 1 > MAX - 3 {
-            break;
-        }
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(w);
-    }
-    out.push_str("...");
-    out
-}
-
 fn image(glyph: TrayGlyph, size: u32) -> Image<'static> {
     Image::new_owned(icons::render(glyph, size), size, size)
 }
@@ -189,7 +160,7 @@ impl<R: Runtime> Tray<R> {
         let update_line = MenuItem::with_id(
             app,
             ID_UPDATE_LINE,
-            update_line_text(&view.update_line),
+            keystage_update::machine::menu_line(&view.update_line),
             false,
             none,
         )?;
@@ -315,7 +286,7 @@ impl<R: Runtime> Tray<R> {
         if all || l.update_line != view.update_line {
             check(
                 self.update_line
-                    .set_text(update_line_text(&view.update_line)),
+                    .set_text(keystage_update::machine::menu_line(&view.update_line)),
             );
         }
         if ok {
@@ -367,23 +338,5 @@ mod tests {
         assert_eq!(pause_text(true), "Resume");
         assert_eq!(session_text(false), "Start session log");
         assert_eq!(session_text(true), "Stop session log");
-    }
-
-    #[test]
-    fn the_update_line_fits_a_menu() {
-        assert_eq!(update_line_text(""), "Updates");
-        assert_eq!(update_line_text("Updated to 0.3.0."), "Updated to 0.3.0.");
-        let long = "Update 0.3.0 is downloaded and installs when recording stops.";
-        assert_eq!(update_line_text(long), long);
-        let two = "The update check could not reach GitHub. It tries again in 30 minutes.";
-        assert_eq!(
-            update_line_text(two),
-            "The update check could not reach GitHub."
-        );
-        let one = "Version 0.3.0 is available. This copy was not set up by the installer, so it does not update itself; download the installer from the releases page.";
-        assert_eq!(update_line_text(one), "Version 0.3.0 is available.");
-        let w = "a ".repeat(80);
-        let out = update_line_text(&w);
-        assert!(out.chars().count() <= 60 && out.ends_with("..."), "{out}");
     }
 }
